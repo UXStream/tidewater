@@ -243,7 +243,8 @@ ${ T ? '	sunLight *= terrainSunShadowAt( pos );' : '' }
 
 	// water film thickness at this pixel and the distance to the swash front (ShoreWaves.swashEdge):
 	// the sheet ends exactly on its analytic leading edge, not on the mesh triangles
-	var thickness = ${ T ? 'pos.y - terrainHeightAt( pos.xz )' : '10.0' };
+	let groundH = ${ T ? 'terrainHeightAt( pos.xz )' : '-500.0' };
+	var thickness = ${ T ? 'pos.y - groundH' : '10.0' };
 	var frontD = 1e3;
 	var swTau = 0.0;
 	var swRt = 0.0;
@@ -256,8 +257,12 @@ ${ hasClip ? `	if ( vDepth < 1.0 ) {
 	let uprush = smoothstep( 0.46, 0.32, swTau );
 	let bead = smoothstep( -0.01, 0.05, frontD ) * smoothstep( 0.6, 0.12, frontD );
 	let trail = smoothstep( -0.01, 0.25, frontD ) * smoothstep( 2.2, 0.3, frontD );
-	// patchy along the front (dense bunches and thin stretches), not an even white rope
-	let edgePatch = ${ hasClip ? 'smoothstep( -0.45, 0.55, perlin2( pos.xz * 0.42 ) ) * 0.7 + smoothstep( -0.3, 0.6, perlin2( pos.xz * 1.7 + vec2f( 3.1, 7.7 ) ) ) * 0.3' : '1.0' };
+	// patchy along the front (dense bunches and thin stretches), not an even white rope (only where
+	// the edge foam below can be non-zero: it is weighted by the run-up and the shallow depth)
+	var edgePatch = 1.0;
+${ hasClip ? `	if ( swRt > 0.0 && vDepth < 0.4 ) {
+		edgePatch = smoothstep( -0.45, 0.55, perlin2( pos.xz * 0.42 ) ) * 0.7 + smoothstep( -0.3, 0.6, perlin2( pos.xz * 1.7 + vec2f( 3.1, 7.7 ) ) ) * 0.3;
+	}` : '' }
 	let edgeFoam = ( bead * mix( 0.45, 1.1, uprush ) * mix( 0.35, 1.0, edgePatch ) + trail * mix( 0.12, 0.4, uprush ) * edgePatch ) * smoothstep( 0.0, 1.0, swRt ) * smoothstep( 0.4, -0.2, vDepth );
 	// the meniscus: the last decimetre of the sheet bends down to the sand
 	let lipW = 1.0 - smoothstep( 0.0, 0.14, frontD );
@@ -363,7 +368,7 @@ ${ REFL ? `
 		let surfViewZ = posV.z;
 
 		// water column below the surface along the refracted ray (terrain, 2 refinements)
-${ T ? `		let L0 = max( pos.y - terrainHeightAt( pos.xz ), 0.0 ) / tDown;
+${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		// deep water: the end point is capped at 80 m and the column is opaque long before, so the
 		// refinements can't change the result
 		var Lt = L0;
@@ -418,7 +423,8 @@ ${ T ? `		let L0 = max( pos.y - terrainHeightAt( pos.xz ), 0.0 ) / tDown;
 			dR = select( sceneDepthC, dO, valid );
 			sceneCol = textureSampleLevel( waterSceneColor, smpLinearClamp, uvF, 0.0 ).rgb;
 		}
-		sceneCol = select( sceneCol, skyReflectionRadiance( normalize( vec3f( Tv.x, max( abs( Tv.y ), 0.03 ), Tv.z ) ) ), thruCrest );
+		// (a branch: select() would evaluate the sky for every pixel)
+		if ( thruCrest ) { sceneCol = skyReflectionRadiance( normalize( vec3f( Tv.x, max( abs( Tv.y ), 0.03 ), Tv.z ) ) ); }
 
 		// objects in front of the sea floor (pylons, rocks, reef) shorten the path
 		let qView = viewPositionFromViewZ( uvF, - viewDepth( dR ) );
