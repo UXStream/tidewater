@@ -531,7 +531,16 @@ export class SkyProClouds {
 // cloud shadow transmittance (1 = clear) at a world position. Manual bilinear filtering of an
 // unfilterable texture: costs no sampler in the (sampler hungry) scene materials.
 fn cloudsShadowTap( i: vec2i ) -> f32 { return textureLoad( cloudsShadowMap, clamp( i, vec2i( 0 ), vec2i( ${ SHADOW_RES - 1 } ) ), 0 ).x; }
+// (the last lookup is remembered: the scene lighting hooks ask for the same point several times)
+var<private> cloudsShadowMemoXZ: vec2f = vec2f( 3.0e38 );
+var<private> cloudsShadowMemo: f32 = 1.0;
 fn cloudsShadow( worldXZ: vec2f ) -> f32 {
+	if ( all( worldXZ == cloudsShadowMemoXZ ) ) { return cloudsShadowMemo; }
+	cloudsShadowMemoXZ = worldXZ;
+	cloudsShadowMemo = _cloudsShadow( worldXZ );
+	return cloudsShadowMemo;
+}
+fn _cloudsShadow( worldXZ: vec2f ) -> f32 {
 	let uv = ( worldXZ - cloudsParams.shadowCenter ) / cloudsParams.shadowSize + 0.5;
 	let st = uv * ${ f( SHADOW_RES ) } - 0.5;
 	let i0 = vec2i( floor( st ) );

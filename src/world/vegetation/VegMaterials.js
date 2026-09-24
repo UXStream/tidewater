@@ -22,7 +22,19 @@ import { vegModule, vegParams, LOD_BAND, C, f } from './VegNodes.js';
 // relief height (m) for the bump. y: height along the stem (m), a: 0..1 around, H: stem height.
 const PALM_BARK = /* wgsl */`
 struct VegBark { bark: vec3f, hd: f32 };
+// (the last evaluation is remembered: the albedo and the trunk bump both ask for the same point)
+var<private> vegBarkMemoKey: vec4f = vec4f( 3.0e38 );
+var<private> vegBarkMemoIv: f32 = 3.0e38;
+var<private> vegBarkMemo: VegBark;
 fn vegPalmBark( y: f32, a: f32, H: f32, seed: f32, iv: f32 ) -> VegBark {
+	let key = vec4f( y, a, H, seed );
+	if ( all( key == vegBarkMemoKey ) && iv == vegBarkMemoIv ) { return vegBarkMemo; }
+	vegBarkMemoKey = key;
+	vegBarkMemoIv = iv;
+	vegBarkMemo = _vegPalmBark( y, a, H, seed, iv );
+	return vegBarkMemo;
+}
+fn _vegPalmBark( y: f32, a: f32, H: f32, seed: f32, iv: f32 ) -> VegBark {
 	let A = a * 6.2832;
 	let ca = cos( A ); let sa = sin( A );
 	let yn = y / H;
@@ -331,14 +343,18 @@ fn vegPlantAlbedo( in: FragInput ) -> vec3f {
 		let y = in.vs.vTrunkY;
 		let a = st.x;
 		let bark = vegPalmBark( y, a, H, seed, iv ).bark;
-		let fiss = vegNoise( vec2f( a * 46.0, y * 1.1 + seed * 50.0 ) );
-		let blotch = vegNoise( vec2f( a * 7.0, y * 0.45 + seed * 13.0 ) );
-		// banana pseudostem: overlapping sheaths (vertical streaks), dark blotches, dry brown
-		// sheath strips peeling off low down (no leaf-scar rings)
-		let streakS = vegNoise( vec2f( a * 24.0, y * 0.35 + seed * 7.0 ) );
-		var green = mix( ${ C( 0x4e6a2a ) }, ${ C( 0x6b8438 ) }, streakS * 0.7 + fiss * 0.3 );
-		green = mix( green, ${ C( 0x3b3322 ) }, smoothstep( 0.62, 0.82, blotch ) * 0.55 );
-		green = mix( green, mix( ${ C( 0x6e5534 ) }, ${ C( 0x8f7a52 ) }, fiss ), smoothstep( 0.55, 0.75, streakS ) * smoothstep( 1.1, 0.3, y ) );
+		// (palm trunks have age 0: the pseudostem colour only where it is mixed in)
+		var green = vec3f( 0.0 );
+		if ( age > 0.0 ) {
+			let fiss = vegNoise( vec2f( a * 46.0, y * 1.1 + seed * 50.0 ) );
+			let blotch = vegNoise( vec2f( a * 7.0, y * 0.45 + seed * 13.0 ) );
+			// banana pseudostem: overlapping sheaths (vertical streaks), dark blotches, dry brown
+			// sheath strips peeling off low down (no leaf-scar rings)
+			let streakS = vegNoise( vec2f( a * 24.0, y * 0.35 + seed * 7.0 ) );
+			green = mix( ${ C( 0x4e6a2a ) }, ${ C( 0x6b8438 ) }, streakS * 0.7 + fiss * 0.3 );
+			green = mix( green, ${ C( 0x3b3322 ) }, smoothstep( 0.62, 0.82, blotch ) * 0.55 );
+			green = mix( green, mix( ${ C( 0x6e5534 ) }, ${ C( 0x8f7a52 ) }, fiss ), smoothstep( 0.55, 0.75, streakS ) * smoothstep( 1.1, 0.3, y ) );
+		}
 		col = mix( bark, green, age );
 	} else if ( part < 1.5 ) {
 		// age (aMat.y): 0 young upper fronds (lighter yellow-green) .. 0.55 old lower fronds (olive,
@@ -484,7 +500,8 @@ export function createPlantLeafMaterial() {
 	s.roughness = select( select( select( 0.7, 0.62, part < 1.5 || isNut ), 0.92, isStem ), mix( broadR, 0.85, smoothstep( 0.9, 0.98, age ) ), isBroad );
 	s.metalness = 0.0;
 	s.specularIntensity = select( select( 0.4, 0.3, isStem ), 0.42, isBroad );
-	s.translucency = select( vec3f( 0.0 ), vegTranslucency( albedo, in.N, select( 0.3, 0.2, isBroad ), in.P ), isLeaf );`,
+	s.translucency = vec3f( 0.0 );
+	if ( isLeaf ) { s.translucency = vegTranslucency( albedo, in.N, select( 0.3, 0.2, isBroad ), in.P ); }`,
 		shadow: 'return vegPlantMask( in );',
 	} );
 	return mat;
@@ -680,13 +697,16 @@ export function createCanopyMaterial( leafAtlas ) {
 	c = mix( c, c * vec3f( 1.16, 1.22, 0.92 ), outer * 0.7 );
 	let leaf = c * mix( 0.55, 1.0, ao );
 	// bark: grey-brown with vertical streaks, lichen patches
-	let st = in.uv;
-	let n2 = vegNoise( vec2f( st.x * 6.0, st.y * 0.7 ) );
-	var bark = vegBarkColor( vegNoise( vec2f( st.x * 30.0, st.y * 2.5 + seed * 40.0 ) ), n2 );
-	// moss and epiphytes on the humid lower trunk and the upper sides of the limbs
 	let hfB = in.vs.vHf;
-	bark = mix( bark, mix( ${ C( 0x2c3a18 ) }, ${ C( 0x44552a ) }, n2 ), smoothstep( 0.45, 0.7, vegNoise( vec2f( st.x * 9.0, st.y * 1.3 + seed * 11.0 ) ) + ( 0.35 - hfB ) * 0.6 ) * 0.7 );
-	let albedo = select( leaf, bark, isBark );
+	var albedo = leaf;
+	if ( isBark ) {
+		let st = in.uv;
+		let n2 = vegNoise( vec2f( st.x * 6.0, st.y * 0.7 ) );
+		var bark = vegBarkColor( vegNoise( vec2f( st.x * 30.0, st.y * 2.5 + seed * 40.0 ) ), n2 );
+		// moss and epiphytes on the humid lower trunk and the upper sides of the limbs
+		bark = mix( bark, mix( ${ C( 0x2c3a18 ) }, ${ C( 0x44552a ) }, n2 ), smoothstep( 0.45, 0.7, vegNoise( vec2f( st.x * 9.0, st.y * 1.3 + seed * 11.0 ) ) + ( 0.35 - hfB ) * 0.6 ) * 0.7 );
+		albedo = bark;
+	}
 	s.albedo = albedo;
 	// bark: the trunk under the crown sees little of the sky
 	s.ao = select( mix( 0.35, 1.0, ao ), smoothstep( 0.0, 0.75, hfB ) * 0.45 + 0.4, isBark );
@@ -697,7 +717,8 @@ export function createCanopyMaterial( leafAtlas ) {
 	// so they are never shaded at grazing angles (avoids a white Fresnel sheen when backlit)
 	let geoN = normalize( in.vs.normal );
 	s.normal = select( normalize( geoN + in.V * 0.7 ), in.N, isBark );
-	s.translucency = select( vegTranslucency( albedo, geoN, 0.5, in.P ) * ( ao * 0.6 + 0.4 ), vec3f( 0.0 ), isBark );`,
+	s.translucency = vec3f( 0.0 );
+	if ( ! isBark ) { s.translucency = vegTranslucency( albedo, geoN, 0.5, in.P ) * ( ao * 0.6 + 0.4 ); }`,
 		shadow: 'return vegCanopyMask( in, vegCanopyLeaf( in ) );',
 	} );
 	return mat;

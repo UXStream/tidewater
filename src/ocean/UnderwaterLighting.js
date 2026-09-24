@@ -161,7 +161,19 @@ fn uwReach() -> f32 { return uwMapParams.reach; }
 
 // bilinear lookup of the baked maps at xz (near map first, then far; flat sea beyond).
 // waves: map A (height, slope, foam) is only read for the full direct term
+// (the direct, ambient and shadow position hooks look up the same point: the last lookup is
+// remembered; one made with waves serves the calls without)
+var<private> uwMemoXZ: vec2f = vec2f( 3.0e38 );
+var<private> uwMemoWaves: bool = false;
+var<private> uwMemo: UwMapSample;
 fn uwMapLookup( xz: vec2f, waves: bool ) -> UwMapSample {
+	if ( all( xz == uwMemoXZ ) && ( uwMemoWaves || ! waves ) ) { return uwMemo; }
+	uwMemoXZ = xz;
+	uwMemoWaves = waves;
+	uwMemo = _uwMapLookup( xz, waves );
+	return uwMemo;
+}
+fn _uwMapLookup( xz: vec2f, waves: bool ) -> UwMapSample {
 	var a = vec4f( 0.0 );
 	var b = vec4f( 0.0, 0.9, 0.0, 0.0 );
 	let st0 = ( xz - uwMapParams.origin0 ) / ${ L0.texel };
