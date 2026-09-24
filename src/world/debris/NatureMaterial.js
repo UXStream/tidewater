@@ -254,6 +254,7 @@ export function createNatureMaterial( gpu, { sunShadow = true } = {} ) {
 		modules: [ commonModule, lodFadeModule, terrainShadingModule(), gpu.module, stoneSurfaceModule, ...( sunShadow ? [ gpu.sunModulationModule ] : [] ) ],
 		// the former TerrainLightingModel (heightfield sun shadow on the key light)
 		defines: sunShadow ? { MATERIAL_SUN_MODULATION: 1 } : {},
+		appliesHillShadow: sunShadow, // (applied above: the lighting hook must not apply it again)
 		attributes: { [ aTint ]: 'vec3f', [ aData ]: 'vec4f' },
 		varyings: { vTint: 'vec3f', vData: 'vec4f' },
 		vertex: `\to.vTint = v.${ aTint };\n\to.vData = v.${ aData };\n`,

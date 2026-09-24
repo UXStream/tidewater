@@ -65,7 +65,7 @@ export class WaterMaterial extends Material {
 			attributes: { nodeData: 'vec4f' },
 			varyings: {
 				vLagXZ: 'vec2f', vWaveH: 'f32', vSeaDepth: 'f32', vFoam: 'f32', vShoreN: 'vec3f',
-				vShoreFoam: 'f32', vSwash: 'f32', vSurfMask: 'vec2f',
+				vShoreFoam: 'f32', vSurfMask: 'vec2f',
 			},
 			uniforms: {
 				backscatter: [ 'f32', 0.035 ],
@@ -188,7 +188,6 @@ export class WaterMaterial extends Material {
 	o.vFoam = r.foam;
 	o.vShoreN = r.shoreN;
 	o.vShoreFoam = r.shoreFoam;
-	o.vSwash = r.swash;
 	o.vSurfMask = r.surfMask;
 `;
 		this.output = this.cheap ? 'r.color = vec4f( 0.02, 0.05, 0.1, 1.0 ); r.mask = vec4f( 0.0, 1.0, 0.0, 1.0 );' : this._shadeWGSL( { T, SH, SIM, SF, CL, HULL, REFL } );

@@ -257,6 +257,7 @@ export class PebbleField {
 			// the former TerrainLightingModel (heightfield sun shadow on the key light)
 			modules: [ commonModule, terrainShadingModule(), gpu.module, gpu.sunModulationModule, stoneSurfaceModule, pebbleModule ],
 			defines: { MATERIAL_SUN_MODULATION: 1 },
+			appliesHillShadow: true, // (applied above: the lighting hook must not apply it again)
 			textures: { debrisPebbleMask: this.maskTex },
 			attributes: { iCell: 'vec4f', aSlot: 'vec4f' },
 			varyings: { vPebble: 'vec4f' }, // type, palette, seed, radius

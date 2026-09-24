@@ -186,6 +186,7 @@ export class ScannedDebris {
 			// the former TerrainLightingModel (heightfield sun shadow on the key light)
 			modules: [ commonModule, lodFadeModule, gpu.module, gpu.sunModulationModule ],
 			defines: { MATERIAL_SUN_MODULATION: 1 },
+			appliesHillShadow: true, // (applied above: the lighting hook must not apply it again)
 			textures: { scanAlbedo: A.albedo, scanNormal: A.normal, scanArm: A.arm },
 			attributes: { aAsset: 'f32', iData: 'vec4f' }, // iData: asset, random, LOD fade, outgoing
 			varyings: { vIData: 'vec4f' },

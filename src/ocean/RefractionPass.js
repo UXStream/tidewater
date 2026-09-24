@@ -35,13 +35,14 @@ export class RefractionPass {
 		this.depthTexture = this.target.depthTexture;
 		this._clearColors = [ [ 0, 0, 0, 0 ] ];
 		// plants never reach under the water (underwaterLighting 'none'); objects whose world bounding box
-		// stays above the clip height (houses, roofs, the vendors, most props) are skipped before drawing.
-		// Instanced meshes are drawn (their bounds are per instance).
+		// stays above the clip height (houses, roofs, the vendors, most props, instanced batches whose
+		// instances all do) are skipped before drawing.
 		this._filter = ( o ) => {
 
 			const m = o.material;
 			if ( m.underwaterLighting === 'none' || m.isWaterMaterial ) return false;
-			if ( o.isInstancedMesh || ! o.geometry.attributes.position ) return true;
+			if ( o.isInstancedMesh ) return this._instancedMinY( o ) < this._clipY;
+			if ( ! o.geometry.attributes.position ) return true;
 			return _box.copy( this._localBox( o ) ).applyMatrix4( o.matrixWorld ).min.y < this._clipY;
 
 		};
@@ -49,9 +50,27 @@ export class RefractionPass {
 		// local bounds of the part of the geometry an object draws (merged batches like the village draw
 		// ranges of one shared geometry: the whole geometry's bounds would include the pier piles)
 		this._boxes = new WeakMap();
+		this._instBoxes = new WeakMap();
 
 		this._clipY = 0;
 		this._defines = { REFRACTION_CLIP: 1, REFRACTION_CLIP_MARGIN: CLIP_MARGIN };
+
+	}
+
+	// lowest world y of an instanced mesh's instances (cached until its instances change)
+	_instancedMinY( o ) {
+
+		const im = o.instanceMatrix;
+		let c = this._instBoxes.get( o );
+		if ( ! c || c.version !== ( im.version || 0 ) || c.count !== o.count || c.array !== im.array ) {
+
+			o.computeBoundingBox();
+			c = { version: im.version || 0, count: o.count, array: im.array, box: o.boundingBox.clone() };
+			this._instBoxes.set( o, c );
+
+		}
+
+		return c.count ? _box.copy( c.box ).applyMatrix4( o.matrixWorld ).min.y : Infinity;
 
 	}
 
