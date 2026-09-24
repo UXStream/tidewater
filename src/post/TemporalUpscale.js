@@ -99,6 +99,15 @@ export class TemporalUpscale {
 		this.settings = this.uniforms.fields;
 		// jitter phases (0: FSR2's 8 x (output / input)^2); debug view (TemporalUpscale.DEBUG_VIEWS index)
 		this.jitterPhaseOverride = 0;
+		// jitter amplitude (1: the full pixel, FSR2; less: steadier sub-pixel detail, less anti-aliasing)
+		this.jitterScale = 1;
+		// jitter amplitude while the camera moves (times jitterScale): in motion the jitter's frame to
+		// frame change of sub-pixel detail (distant plank gaps hit on one frame, missed on the next) adds
+		// to the motion's own and flickers, while the motion already moves the samples over the pixels.
+		// Full amplitude from still up to ~0.1 m or ~0.03 degrees per frame, this from ~0.6 m/s walking.
+		this.jitterMoving = 0.35;
+		this._camMotion = 0;
+		this._camPrev = null;
 		this.debugView = 0;
 		const U = this.uniforms.fields;
 		this._jitterOffset = U.jitterOffset;
@@ -164,9 +173,35 @@ export class TemporalUpscale {
 		const phases = this.jitterPhaseOverride || Math.max( 1, Math.ceil( 8 * ratio * ratio ) );
 		this.uniforms.fields.jitterPhases.value = phases;
 		const i = this._jitterIndex % phases;
-		const jx = halton( i + 1, 2 ) - 0.5, jy = halton( i + 1, 3 ) - 0.5;
+		const k = this.jitterScale * ( 1 + ( this.jitterMoving - 1 ) * this._cameraMotion() );
+		const jx = ( halton( i + 1, 2 ) - 0.5 ) * k, jy = ( halton( i + 1, 3 ) - 0.5 ) * k;
 		this._jitterOffset.value.set( jx, jy );
 		return [ jx, jy ];
+
+	}
+
+	// 0 (still) .. 1 (moving) from the camera's world matrix since the last frame, eased out over a few
+	// frames so a pause mid-walk doesn't switch the jitter back and forth
+	_cameraMotion() {
+
+		const m = this.camera && this.camera.matrixWorld;
+		if ( ! m ) return 0;
+		const e = m.elements;
+		const cur = [ e[ 12 ], e[ 13 ], e[ 14 ], e[ 8 ], e[ 9 ], e[ 10 ] ];
+		let target = 0;
+		if ( this._camPrev ) {
+
+			const p = this._camPrev;
+			const dPos = Math.hypot( cur[ 0 ] - p[ 0 ], cur[ 1 ] - p[ 1 ], cur[ 2 ] - p[ 2 ] );
+			const dDir = Math.hypot( cur[ 3 ] - p[ 3 ], cur[ 4 ] - p[ 4 ], cur[ 5 ] - p[ 5 ] ); // ~ angle (rad)
+			target = Math.min( 1, Math.max( ( dPos - 0.002 ) / 0.008, ( dDir - 0.0005 ) / 0.0015 ) );
+			target = Math.max( 0, target );
+
+		}
+
+		this._camPrev = cur;
+		this._camMotion = target > this._camMotion ? target : this._camMotion + ( target - this._camMotion ) * 0.15;
+		return this._camMotion;
 
 	}
 

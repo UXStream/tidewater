@@ -256,6 +256,10 @@ export class AppUI {
 		taaSlider( 'lockThreshold', 'Thin feature threshold', 1.0, 1.5, 0.01, 'Brightness ratio under which a neighbour counts as similar when looking for one-pixel-wide features to lock. Higher: more pixels count as thin features. FSR2: 1.05.' );
 		taa.addToggle( { label: 'Thin feature locks', object: s, key: 'locks', tooltip: 'FSR2: one-pixel-wide ridges (rails, wires, plank gaps) keep their history instead of being clamped.', onChange: ( v ) => { T.locks.value = v ? 1 : 0; } } );
 		taa.addToggle( { label: 'Luma instability', object: s, key: 'instability', tooltip: 'FSR2: a pixel whose brightness oscillates over the last 4 frames keeps its history instead of being clamped.', onChange: ( v ) => { T.instability.value = v ? 1 : 0; } } );
+		s.jitterScale = taau.jitterScale;
+		taa.addSlider( { label: 'Jitter amount', object: s, key: 'jitterScale', min: 0, max: 1, step: 0.05, tooltip: 'Size of the per-frame sub-pixel camera offset the TAA averages over. 1: a full pixel (FSR2). Less: steadier thin detail, but edges get less anti-aliasing; 0 turns the jitter off.', onChange: ( v ) => { taau.jitterScale = v; } } );
+		s.jitterMoving = taau.jitterMoving;
+		taa.addSlider( { label: 'Jitter when moving', object: s, key: 'jitterMoving', min: 0, max: 1, step: 0.05, tooltip: 'Jitter amount (times the above) while the camera moves. Walking already moves the samples across the pixels; the jitter on top makes distant thin detail flicker. 1: always full.', onChange: ( v ) => { taau.jitterMoving = v; } } );
 		taa.addSelect( { label: 'Jitter phases', object: s, key: 'phases', tooltip: 'Length of the sub-pixel jitter sequence. Auto: FSR2 (8 at native resolution).', options: [ { label: 'Auto', value: 0 }, { label: '4', value: 4 }, { label: '8', value: 8 }, { label: '16', value: 16 }, { label: '32', value: 32 } ], onChange: ( v ) => { taau.jitterPhaseOverride = Number( v ); } } );
 
 		this._t = 0;
