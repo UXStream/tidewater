@@ -130,14 +130,18 @@ fn waterSurfaceCascadeAttenuation( c: i32, depth: f32 ) -> f32 {
 		let uv = worldXZ / ocean.sizes[ ${ c } ].x;
 		let s = textureSampleLevel( oceanDisplacement, smpLinearRepeat, uv, ${ c }, level );
 		disp += s.xyz * att;
-		// foam coverage is smooth enough to evaluate per vertex (sampled at a fixed detail level)
-		let fv = textureSampleLevel( oceanDisplacement, smpLinearRepeat, uv, ${ c }, max( level, 1.5 ) ).w;
+		// foam coverage is smooth enough to evaluate per vertex (sampled at a fixed detail level,
+		// the displacement sample itself from there on)
+		var fv = s.w;
+		if ( level < 1.5 ) { fv = textureSampleLevel( oceanDisplacement, smpLinearRepeat, uv, ${ c }, 1.5 ).w; }
 		foam += fv * ${ f( this.foamWeights[ c ] ?? 0.25 ) } * att;
 	}`;
 
 		}
 
 		const vertex = /* wgsl */`
+const WATER_SHORE_DEEP: f32 = 26.0; // m: ShoreWaves' envelope smoothstep( 26, 13, depth ) is 0 beyond
+
 struct WaterSurfaceVertex {
 	position: vec3f,
 	lagXZ: vec2f,
@@ -159,7 +163,8 @@ fn waterSurfaceVertex( node: vec4f, grid: vec2f ) -> WaterSurfaceVertex {
 	let lod: ${ CdV } = ${ cd }Morph( node, grid, frame.cameraPos, 0.0 );
 	let worldXZ = lod.worldXZ;
 	let spacing = lod.spacing;
-	let depth = waterSurfaceSeaDepth( worldXZ );
+	let ground = ${ T ? 'terrainHeightAt( worldXZ )' : '-500.0' };
+	let depth = ${ T ? 'frame.seaLevel - ground' : '500.0' };
 
 	var disp = vec3f( 0.0 );
 	var foam = 0.0;
@@ -172,22 +177,27 @@ ${ cascadesV }
 	var shoreFoam = 0.0;
 	var swash = 0.0;
 	var surfMask = vec2f( 0.0 ); // clear plunging face, whitewater roller relief (m)
-	let ground = ${ T ? 'terrainHeightAt( worldXZ )' : '-500.0' };
 ${ SH ? /* wgsl */`
-	let sw = shoreEvaluate( worldXZ, depth, ground );
-	extra += sw.disp;
-	shoreN = clamp( sw.nShore, vec3f( -1.0 ), vec3f( 1.0 ) );
-	// (the foam line on the swash front is added per pixel in the water shader: on this coarse mesh
-	// it would end short of the front and follow the triangles)
-	shoreFoam = sw.foam;
-	surfMask = vec2f( sw.face, sw.roller );
-	let swashLevel = sw.swashLevel;` : '' }
+	// Offshore of WATER_SHORE_DEEP the shore waves have faded out completely (their envelope is 0 from 26 m
+	// of depth, see ShoreWaves) and there is no swash: most of the sea skips their evaluation.
+	let nearShore = depth < WATER_SHORE_DEEP;
+	var swashLevel = -1e4;
+	if ( nearShore ) {
+		let sw = shoreEvaluate( worldXZ, depth, ground );
+		extra += sw.disp;
+		shoreN = clamp( sw.nShore, vec3f( -1.0 ), vec3f( 1.0 ) );
+		// (the foam line on the swash front is added per pixel in the water shader: on this coarse mesh
+		// it would end short of the front and follow the triangles)
+		shoreFoam = sw.foam;
+		surfMask = vec2f( sw.face, sw.roller );
+		swashLevel = sw.swashLevel;
+	}` : '' }
 ${ WK ? '	extra += wakeDisplacement( worldXZ );' : '' }
 
 	var total = disp + extra;
 	var y = frame.seaLevel + total.y;
 ${ SH ? /* wgsl */`
-	{
+	if ( nearShore ) {
 		// thin run-up sheet on the sand: take whichever surface is higher (smooth max)
 		let k = 0.04;
 		// no run-up sheet on steep rock (cliffs, sea stacks): waves break against it instead
