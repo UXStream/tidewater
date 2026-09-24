@@ -114,11 +114,14 @@ fn ${ P }Morph( node: vec4f, grid: vec2f, viewPos: vec3f, y0: f32 ) -> ${ Cap }V
 
 		}
 
+		// quads in column strips of STRIP: the next row of a strip reuses vertices the GPU shaded a
+		// moment ago (a full grid row is longer than its post-transform reuse window)
+		const STRIP = 8;
 		const idx = new Uint32Array( G * G * 6 );
 		p = 0;
-		for ( let j = 0; j < G; j ++ ) {
+		for ( let i0 = 0; i0 < G; i0 += STRIP ) for ( let j = 0; j < G; j ++ ) {
 
-			for ( let i = 0; i < G; i ++ ) {
+			for ( let i = i0; i < Math.min( i0 + STRIP, G ); i ++ ) {
 
 				const a = j * ( G + 1 ) + i;
 				const b = a + 1;
