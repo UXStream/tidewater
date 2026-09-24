@@ -12,7 +12,7 @@ import { Colliders } from '../src/world/Colliders.js';
 import { Village } from '../src/world/Village.js';
 import { Material } from '../src/engine/render/Material.js';
 import { FullscreenPass } from '../src/engine/render/FullscreenPass.js';
-import { RenderTarget } from '../src/engine/gpu/Texture.js';
+import { RenderTarget, StorageBuffer } from '../src/engine/gpu/Texture.js';
 import { readTexture } from '../src/engine/gpu/Readback.js';
 import { setFrameCamera, FrameUniforms } from '../src/engine/render/Frame.js';
 import { TemporalUpscale } from '../src/post/TemporalUpscale.js';
@@ -37,11 +37,12 @@ const village = new Village( { scene, terrain, colliders: new Colliders() } );
 }
 
 camera.fov = 62; camera.near = 0.1; camera.updateProjectionMatrix();
-const taau = new TemporalUpscale( () => rt.texture, rt.depthTexture, rt.textures[ 1 ], camera, rt.textures[ 2 ] );
+// exposure 0.6: the tone map below
+const exposure = new StorageBuffer( { label: 'exposure', count: 1, type: 'f32', data: new Float32Array( [ 0.6 ] ) } );
+const taau = new TemporalUpscale( () => rt.texture, rt.depthTexture, rt.textures[ 1 ], camera, rt.textures[ 2 ], exposure );
 taau.setSize( W, H );
-// diagnostics: FW=<current-frame weight>, NODEPTH=1 (no depth-based history rejection), NOJIT=1
+// diagnostics: NODEPTH=1 (no depth-based history rejection), NOJIT=1
 // (no jitter: with a moving camera the output should match the current frame, any blur is the history's)
-if ( process.env.FW ) taau.frameWeight.value = Number( process.env.FW );
 if ( process.env.NODEPTH ) taau.uniforms.fields.depthThreshold.value = 1e9;
 const ldr = new RenderTarget( W, H, { colors: [ 'rgba8unorm' ], label: 'ldr' } );
 const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( MODE === 'taa' ? taau.texture : rt.texture ) } },

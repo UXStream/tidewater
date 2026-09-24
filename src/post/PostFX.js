@@ -6,7 +6,7 @@ import { FullscreenPass } from '../engine/render/FullscreenPass.js';
 import { FrameUniforms, G, setFrameCamera } from '../engine/render/Frame.js';
 import { LENS_REACH } from './Underwater.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
-import { MathUtils, Matrix4, Vector2, Vector3 } from '../engine/math/index.js';
+import { Matrix4, Vector2, Vector3 } from '../engine/math/index.js';
 import { GTAO } from './GTAO.js';
 import { AntiAlias } from './AntiAlias.js';
 import { TemporalUpscale } from './TemporalUpscale.js';
@@ -183,7 +183,7 @@ ${ taps }
 		this.beauty = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'beauty' } );
 
 		// ---- temporal anti-aliasing + upscale
-		this.taau = new TemporalUpscale( () => this.beauty.texture, this.finalDepth, sceneRenderer.velocityTexture, camera, sceneRenderer.waterMaskTexture );
+		this.taau = new TemporalUpscale( () => this.beauty.texture, this.finalDepth, sceneRenderer.velocityTexture, camera, sceneRenderer.waterMaskTexture, this.exposure );
 		// anti-aliasing: 'taa' (the temporal upscaler, jittered camera) or a spatial filter ('smaa',
 		// 'fxaa', 'none') writing the same resolved image (AntiAlias.js)
 		this.aaMode = 'taa';
@@ -590,8 +590,6 @@ fn fragment( in: FSIn ) -> vec4f {
 		this.scale = s;
 		this.sceneRenderer.scale = s;
 		if ( this.haze ) this.haze.setScale( s );
-		// upscaling needs more frames to fill the output grid; at 1:1 respond faster (less smear)
-		this.taau.frameWeight.value = MathUtils.lerp( 0.035, 0.06, MathUtils.clamp( ( s - 0.6 ) / 0.4, 0, 1 ) );
 
 	}
 
