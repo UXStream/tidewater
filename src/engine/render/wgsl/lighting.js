@@ -291,6 +291,9 @@ fn defaultSurface( N: vec3f ) -> Surface {
 // view-depth change per pixel of the surface being lit, taken at the top of shadeSurface (every
 // lane of the quad is live there; the hooks run in branches, where derivatives are undefined)
 var<private> lightDepthSlope: f32 = 0.0;
+// screen derivatives of the lit position, taken at the same place (the sun hooks run in a branch)
+var<private> lightDPdx: vec3f = vec3f( 0.0 );
+var<private> lightDPdy: vec3f = vec3f( 0.0 );
 
 struct LightAccum {
 	directDiffuse: vec3f,
@@ -392,6 +395,8 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 		let fwdV = -vec3f( frame.view[ 0 ][ 2 ], frame.view[ 1 ][ 2 ], frame.view[ 2 ][ 2 ] );
 		let wP = dot( P - frame.cameraPos, fwdV );
 		lightDepthSlope = max( abs( dpdx( wP ) ), abs( dpdy( wP ) ) );
+		lightDPdx = dpdx( P );
+		lightDPdy = dpdy( P );
 	}
 
 	// ---- sun / moon
@@ -400,23 +405,29 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 #if STUDIO_LIGHTING
 	let lightColor = frame.sunColor;
 #else
-	var lightColor = frame.sunColor * hookDirectModulation( P, N );
-#if MATERIAL_SUN_MODULATION
-	// per-material key-light multiplier (the former TerrainLightingModel: heightfield hill shadow)
-	lightColor *= materialSunModulation( P, N );
-#endif
-	let geomN = N;
-#if REFRACTION_CLIP
-	// the water's refraction source (seen blurred through the water): one hard shadow tap
-	let shadow = sunShadowHard( hookShadowPosition( P, geomN, pixel ) );
-#else
-	// faces turned away from the sun with no transmission get nothing from it: skip the filter
-	var shadow = 0.0;
+	// Faces turned away from the sun with no transmission get nothing from it: the modulation hooks
+	// (clouds, hill shadow, caustics) and the shadow filters only run for the rest, and the filters
+	// only where the hooks left light (their derivatives are taken ahead: lightDPdx / lightDPdy)
+	var lightColor = vec3f( 0.0 );
 	if ( dotNL > 0.0 || any( s.translucency > vec3f( 0.0 ) ) ) {
-		shadow = sunShadow( hookShadowPosition( P, geomN, pixel ), geomN, pixel ) * hookContactShadow( P, N );
-	}
+		lightColor = frame.sunColor * hookDirectModulation( P, N );
+#if MATERIAL_SUN_MODULATION
+		// per-material key-light multiplier (the former TerrainLightingModel: heightfield hill shadow)
+		lightColor *= materialSunModulation( P, N );
 #endif
-	lightColor *= shadow;
+		let geomN = N;
+		var shadow = 0.0;
+		if ( any( lightColor > vec3f( 0.0 ) ) ) {
+#if REFRACTION_CLIP
+			// the water's refraction source (seen blurred through the water): one hard shadow tap
+			shadow = sunShadowHard( hookShadowPosition( P, geomN, pixel ) );
+#else
+			shadow = sunShadow( hookShadowPosition( P, geomN, pixel ), geomN, pixel );
+			if ( shadow > 0.0 ) { shadow *= hookContactShadow( P, N ); }
+#endif
+		}
+		lightColor *= shadow;
+	}
 #endif
 	let irradiance = dotNL * lightColor;
 	acc.directDiffuse += irradiance * diffuseColor * INV_PI;

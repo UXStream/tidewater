@@ -222,10 +222,10 @@ fn hookDirectModulation( P: vec3f, N: vec3f ) -> vec3f {
 #else
 	var result = vec3f( 1.0 );
 #if UNDERWATER_LIGHTING == 2
-	// the pixel's footprint on the ground plane, to filter the caustics over it (taken here, in
-	// uniform control flow, ahead of the branches below)
-	let gdx = dpdx( P.xz );
-	let gdy = dpdy( P.xz );
+	// the pixel's footprint on the ground plane, to filter the caustics over it (screen derivatives
+	// taken by shadeSurface in uniform control flow: this hook runs in its branches)
+	let gdx = lightDPdx.xz;
+	let gdy = lightDPdy.xz;
 #endif
 #if UNDERWATER_LIGHTING != 0
 	// cheap reject: above anything the water reaches
