@@ -388,7 +388,13 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		let pEnd = pos + Tv * min( Lter, 80.0 );
 		let clipEnd = frame.proj * ( frame.view * vec4f( pEnd, 1.0 ) );
 		let ndcEnd = clipEnd.xy / max( clipEnd.w, 1e-4 );
-		let uvR = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
+		let uvR0 = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
+		// an end point off screen: shorten the screen offset so it stays on screen (clamping it to the
+		// edge texel smeared the edge row into streaks at right angles to the edge, e.g. looking down
+		// from the pier, where the steeper refracted ray lands below the screen)
+		let offR = uvR0 - screenUV;
+		let roomR = select( ( vec2f( 0.999 ) - screenUV ) / max( offR, vec2f( 1e-6 ) ), ( screenUV - vec2f( 0.001 ) ) / max( - offR, vec2f( 1e-6 ) ), offR < vec2f( 0.0 ) );
+		let uvR = screenUV + offR * sat( min( roomR.x, roomR.y ) );
 		let onScreen = all( uvR > vec2f( 0.0 ) ) && all( uvR < vec2f( 1.0 ) );
 		var uvF = screenUV;
 		var dR = 0.0;
@@ -398,8 +404,6 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		// the scene below the water only (RefractionPass): nothing above the water (pier, rails, posts,
 		// the boat) can hide the refracted end point. Coverage in alpha: bilinear across its edge, then
 		// un-premultiplied, so the clip boundary blends instead of darkening.
-		// (an end point off screen takes the nearest edge texel: the opaque pass shades deep seabed
-		// cheaply, see MeshShader submergedHidden, so the unrefracted pixel is no fallback there)
 		{
 			let uvRc = clamp( uvR, vec2f( 0.001 ), vec2f( 0.999 ) );
 			let rc = textureSampleLevel( waterRefrColor, smpLinearClamp, uvRc, 0.0 );

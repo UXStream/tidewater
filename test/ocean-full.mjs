@@ -22,7 +22,7 @@ console.error = ( ...a ) => { errors ++; origErr( ...a ); };
 
 const base = makeTerrain();
 const terrain = Object.assign( Object.create( Object.getPrototypeOf( base ) ), base );
-terrain.module = new ShaderModule( { name: 'terrainStubFull', deps: [ base.module ], code: 'fn terrainSunShadowAt( P: vec3f ) -> f32 { return 1.0; }' } );
+terrain.module = new ShaderModule( { name: 'terrainStubFull', deps: [ base.module ], code: 'fn terrainSunShadowAt( P: vec3f ) -> f32 { return 1.0; }\nfn terrainNormalRockLevel( xz: vec2f, level: f32 ) -> vec4f { return vec4f( 0.0, 1.0, 0.0, 0.0 ); }' } );
 const sky = makeSky();
 const clouds = makeClouds();
 
