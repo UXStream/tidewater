@@ -46,6 +46,9 @@ taau.setSize( W, H );
 if ( process.env.DBGV ) taau.debugView = Number( process.env.DBGV ); // debug view (TemporalUpscale.DEBUG_VIEWS)
 if ( process.env.JS ) taau.jitterScale = Number( process.env.JS ); // jitter amount
 if ( process.env.JM ) taau.jitterMoving = Number( process.env.JM ); // jitter while moving
+// SET=name=value,... : TemporalUpscale.settings; PH: jitter phases
+for ( const kv of ( process.env.SET || '' ).split( ',' ).filter( Boolean ) ) { const [ k, v ] = kv.split( '=' ); taau.settings[ k ].value = Number( v ); }
+if ( process.env.PH ) taau.jitterPhaseOverride = Number( process.env.PH );
 if ( process.env.NODEPTH ) taau.uniforms.fields.depthThreshold.value = 1e9;
 const ldr = new RenderTarget( W, H, { colors: [ 'rgba8unorm' ], label: 'ldr' } );
 const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( MODE === 'taa' ? taau.output : rt.texture ) } },

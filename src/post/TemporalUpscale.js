@@ -57,7 +57,7 @@ function halton( index, base ) {
 
 export class TemporalUpscale {
 
-	static DEBUG_VIEWS = [ 'Off', 'Locks (green: holding, blue: new)', 'Luma instability (red)', 'Clamped (red) / kept (green)', 'New frame weight', 'Motion (px / frame)', 'Resampling blur (blue)' ];
+	static DEBUG_VIEWS = [ 'Off', 'Locks (green: holding, blue: new)', 'Luma instability (red)', 'Clamped (red) / kept (green)', 'New frame weight', 'Motion (px / frame)', 'Resampling blur (blue)', 'Still pixels kept (yellow)' ];
 
 	constructor( beauty, depthTexture, velocityTexture, camera, waterMaskTexture = null, exposure = null ) {
 
@@ -81,20 +81,22 @@ export class TemporalUpscale {
 			// tuning (see settings)
 			boxStill: [ 'f32', 3 ],
 			boxMotion: [ 'f32', 1 ],
-			maxAccumulation: [ 'f32', 1 ],
+			maxAccumulation: [ 'f32', 2 ],
 			motionAccumulation: [ 'f32', 10 ],
 			blurComp: [ 'f32', 0.5 ],
 			locks: [ 'f32', 1 ],
 			instability: [ 'f32', 1 ],
 			lockThreshold: [ 'f32', 1.05 ],
+			staticKeep: [ 'f32', 1 ],
 		}, { label: 'taau' } );
 		// tuning uniforms (.value), for the UI:
 		//  boxStill / boxMotion: clamp box half size in standard deviations, still (FSR2: 1 at native) /
 		//    at 20 px per frame and above
-		//  maxAccumulation: history length (FSR2 1: ~13 frames); motionAccumulation: its cap in motion,
+		//  maxAccumulation: history length (FSR2 1: ~13 frames; 2 here, a still image steadier); motionAccumulation: its cap in motion,
 		//    in frames' weights (FSR2 10)
 		//  blurComp: accumulation cap by the history's resampling blur (0 = FSR2)
 		//  locks / instability: FSR2's thin-feature locks and luma instability (1 on, 0 off)
+		//  staticKeep: still pixels keep their history unless the local luma changed (0 = FSR2)
 		//  lockThreshold: luma ratio under which a neighbour counts as similar to the centre (FSR2 1.05)
 		this.settings = this.uniforms.fields;
 		// jitter phases (0: FSR2's 8 x (output / input)^2); debug view (TemporalUpscale.DEBUG_VIEWS index)
@@ -454,6 +456,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	// value instead of the last one
 	var lumaInstability = 0.0;
 	var lumaHist = vec4f( 0.0 );
+	var staticKeep = 0.0;
 	{
 		var curLuma = boxCenter.x / ( 1.0 + max( 0.0, boxCenter.x ) );
 		curLuma = round( curLuma * 255.0 ) / 255.0;
@@ -471,6 +474,12 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 			lumaInstability = select( 0.0, 1.0, lumaInstability > 1.0 / 255.0 );
 		}
 		lumaInstability *= select( 0.0, 1.0, lumaHist.w != 0.0 ) * taau.instability;
+		// Still pixels (not in FSR2): with the camera and the surface still, a clamp can only be the
+		// jitter's doing (a sub-pixel plank gap that the 3x3 misses in this frame's samples), unless the
+		// lighting changed. A real change (a shadow moving in) leaves the local luma away from all of
+		// the last 4 frames'; the jitter brings it back to one of them. Such pixels keep their history.
+		let dAll = min( min( abs( curLuma - lumaHist.x ), abs( curLuma - lumaHist.y ) ), min( abs( curLuma - lumaHist.z ), abs( curLuma - lumaHist.w ) ) );
+		staticKeep = taau.staticKeep * select( 0.0, 1.0, hrVelocity < 0.05 && lumaHist.w != 0.0 && ! isWater ) * sat( 1.0 - ( dAll - 0.01 ) / 0.03 );
 		lumaHist = vec4f( curLuma, lumaHist.xyz );
 	}
 
@@ -508,7 +517,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 		if ( any( boxMin > historyColor ) || any( historyColor > boxMax ) ) {
 			let clamped = clamp( historyColor, boxMin, boxMax );
 			// (not on the water: its glints move on their own and would leave trails)
-			let contribution = select( sat( max( lumaInstability, lockContribution ) ), 0.0, isWater );
+			let contribution = select( sat( max( max( lumaInstability, lockContribution ), staticKeep ) ), 0.0, isWater );
 			dbgClamp = vec2f( length( clamped - historyColor ) / max( boxVec.x * 2.0, 0.02 ), contribution );
 			historyColor = mix( clamped, historyColor, contribution );
 			accumulation = mix( min( accumulation, 0.1 ), accumulation, contribution );
@@ -561,6 +570,7 @@ DEBUG_OUTPUT
 	if ( view == 1u ) { v = gray + vec3f( 0.0, lockContribution, select( 0.0, 1.0, newLock ) ); }
 	else if ( view == 2u ) { v = gray + vec3f( lumaInstability, 0.0, 0.0 ); }
 	else if ( view == 3u ) { v = gray + vec3f( sat( dbgClamp.x ) * ( 1.0 - dbgClamp.y ), sat( dbgClamp.x ) * dbgClamp.y, 0.0 ); }
+	else if ( view == 7u ) { v = gray + vec3f( staticKeep * 0.8, staticKeep * 0.8, 0.0 ); }
 	else if ( view == 4u ) { v = vec3f( sat( alphaOut * 3.0 ) ); }
 	else if ( view == 5u ) { v = gray + vec3f( sat( hrVelocity / 4.0 ), sat( hrVelocity / 16.0 ), 0.0 ); }
 	else if ( view == 6u ) { v = gray + vec3f( 0.0, 0.0, sat( blurAlpha * 2.0 ) ); }
