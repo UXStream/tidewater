@@ -636,8 +636,6 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		this.atmosphere.update( dt, this.camera.position.y );
 		this.applyAtmosphereReadback();
-		if ( this.clouds ) this.clouds.update( dt, this.camera );
-		this.environment.update( dt );
 
 		// ---- water simulation
 		this.fft.update( dt );
@@ -663,6 +661,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.underwaterLighting.update( this.camera );
 		this.breakers.update( this.camera );
 		this.spray.update();
+		if ( this.clouds ) this.clouds.update( dt, this.camera );
+		this.environment.update( dt );
 
 		// ---- world
 		this.oceanLOD.update( this.camera );
