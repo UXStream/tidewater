@@ -52,7 +52,7 @@ export const viewPositionFromViewZ = ( uv, viewZ ) => `viewPositionFromViewZ( ${
 // shader: previous world position = current, staticVelocity), r.mask = ( seenFromBelow, 1, 0, 1 ).
 export class WaterMaterial extends Material {
 
-	constructor( { surface, sky, sceneCopy, refraction = null, reflection = null, hullMask = null, hullMaskActive = null } ) {
+	constructor( { surface, sky, sceneCopy, sceneDepthHalf = null, refraction = null, reflection = null, hullMask = null, hullMaskActive = null } ) {
 
 		super( {
 			name: 'water',
@@ -107,6 +107,8 @@ export class WaterMaterial extends Material {
 		// opaque scene color/depth copies (made by SceneRenderer right before the water pass)
 		this.sceneDepthTexture = sceneCopy.depthTexture;
 		this.sceneColorTexture = sceneCopy.texture;
+		// the same depth as half float (SceneRenderer.opaqueDepthHalf), optional: the reflection march
+		this.sceneDepthHalfTexture = sceneDepthHalf;
 		// what lies below the water only (ocean/RefractionPass.js): the refraction source
 		this.refraction = refraction;
 		// camera distance to the nearest hull-volume surface per pixel (SceneRenderer, 0 = none)
@@ -161,6 +163,8 @@ export class WaterMaterial extends Material {
 			SIM && S.shoreSim.module, REFL && this.reflection.module, this.cameraWaterHeightNode && this.cameraWaterHeightNode.module ].filter( Boolean );
 		this.bindings.waterSceneColor = { texture: this.sceneColorTexture };
 		this.bindings.waterSceneDepth = { texture: this.sceneDepthTexture, sampleType: 'unfilterable-float' };
+		if ( this.sceneDepthHalfTexture ) this.bindings.waterSceneDepthHalf = { texture: this.sceneDepthHalfTexture };
+		this.setDefine( 'WATER_DEPTH_HALF', this.sceneDepthHalfTexture ? 1 : 0 );
 		const REFR = !! this.refraction;
 		if ( REFR ) {
 
@@ -586,7 +590,16 @@ fn _waterSceneDepthAt( uv: vec2f ) -> f32 {
 	let p = vec2i( clamp( uv, vec2f( 0.0 ), vec2f( 0.9999 ) ) * size );
 	return textureLoad( waterSceneDepth, p, 0 ).x;
 }
-fn _waterSceneZAt( uv: vec2f ) -> f32 { return - viewDepth( _waterSceneDepthAt( uv ) ); }
+// linear view Z of the opaque scene for the reflection march (half float copy: the march is
+// bandwidth bound and its thickness tests allow centimetres)
+fn _waterSceneZAt( uv: vec2f ) -> f32 {
+#if WATER_DEPTH_HALF
+	let size = vec2f( textureDimensions( waterSceneDepthHalf ) );
+	return - viewDepth( textureLoad( waterSceneDepthHalf, vec2i( clamp( uv, vec2f( 0.0 ), vec2f( 0.9999 ) ) * size ), 0 ).x );
+#else
+	return - viewDepth( _waterSceneDepthAt( uv ) );
+#endif
+}
 fn _waterProject( p: vec3f ) -> vec2f {
 	let clip = frame.proj * vec4f( p, 1.0 );
 	let ndc = clip.xy / max( clip.w, 1e-4 );

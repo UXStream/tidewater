@@ -1,6 +1,7 @@
 import { GPU } from '../gpu/GPU.js';
 import { RenderTarget } from '../gpu/Texture.js';
 import { Material } from './Material.js';
+import { FullscreenPass } from './FullscreenPass.js';
 import { Mesh } from '../scene/Mesh.js';
 import { Scene } from '../scene/Scene.js';
 import { Frustum, Matrix4, Sphere, Vector3 } from '../math/index.js';
@@ -24,7 +25,8 @@ export const DEPTH_FORMAT = 'depth32float';
 // Scene renderer (internal resolution = output * scale, upscaled later by TAAU):
 //   1. opaque layer -> sceneRT (HDR color + velocity + water mask, reversed-Z float depth), then the
 //      background (sky) where nothing was drawn
-//   2. copies of color / depth -> opaqueCopy (sampled by the water for refraction / absorption)
+//   2. copies of color / depth -> opaqueCopy (sampled by the water for refraction / absorption), and a
+//      half float copy of the depth (opaqueDepthHalf)
 //   3. hull masks (closed volumes the sea is not drawn inside)
 //   4. water + transparent layers -> sceneRT on top. Velocity blends premultiplied there: opaque
 //      outputs overwrite it, blended effects write ( v * a, 0, a ), glass writes 0.
@@ -44,6 +46,10 @@ export class SceneRenderer {
 		this.velocityTexture = this.sceneRT.textures[ 1 ];
 		this.waterMaskTexture = this.sceneRT.textures[ 2 ];
 		this.opaqueCopy = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], depth: DEPTH_FORMAT, label: 'opaqueCopy' } );
+		// the opaque depth again as half float (reversed-Z keeps its relative precision): for many
+		// scattered reads that tolerate centimetres, e.g. the water's screen-space reflection march
+		this.opaqueDepthHalf = new RenderTarget( 1, 1, { colors: [ 'r16float' ], label: 'opaqueDepthHalf' } );
+		this._depthHalfPass = null;
 		this.hullMaskRT = new RenderTarget( 1, 1, { colors: [ 'r16float' ], depth: DEPTH_FORMAT, label: 'hullMask' } );
 		this.hullMaskScene = new Scene();
 		this.hullMaskMaterial = new Material( { name: 'hullMask', lit: false, side: 'double', surface: 's.albedo = vec3f( length( in.P - frame.cameraPos ), 0.0, 0.0 ); s.emissive = vec3f( 0.0 );' } );
@@ -63,6 +69,7 @@ export class SceneRenderer {
 		this.height = h;
 		this.sceneRT.setSize( w, h );
 		this.opaqueCopy.setSize( w, h );
+		this.opaqueDepthHalf.setSize( w, h );
 		this.hullMaskRT.setSize( w, h );
 
 	}
@@ -126,6 +133,12 @@ export class SceneRenderer {
 		const size = { width: rt.width, height: rt.height };
 		enc.copyTextureToTexture( { texture: rt.texture.getGPU() }, { texture: this.opaqueCopy.texture.getGPU() }, size );
 		enc.copyTextureToTexture( { texture: rt.depthTexture.getGPU() }, { texture: this.opaqueCopy.depthTexture.getGPU() }, size );
+		if ( ! this._depthHalfPass ) this._depthHalfPass = new FullscreenPass( {
+			label: 'opaque depth half', colorFormats: [ 'r16float' ],
+			bindings: { srcDepth: { texture: () => this.opaqueCopy.depthTexture } },
+			code: 'fn fragment( in: FSIn ) -> vec4f { return vec4f( textureLoad( srcDepth, vec2i( in.pos.xy ), 0 ), 0.0, 0.0, 1.0 ); }',
+		} );
+		this._depthHalfPass.render( { colorViews: [ this.opaqueDepthHalf.texture ], clear: [ 0, 0, 0, 0 ] } );
 
 		// 3. hull interiors
 		if ( this.hullMasks.length > 0 ) this._renderHullMasks( camera );
