@@ -256,6 +256,34 @@ fn hazeRay( uv: vec2f ) -> HazeRay {
 	return r;
 }
 
+// the march's hill shadow: terrainSunShadowAt with one filtered fetch instead of four loads (the
+// texture is half float, filterable; the materials keep the loads: they are short of samplers)
+fn hazeTerrainSun( P: vec3f ) -> f32 {
+#if HZ_TERRAIN
+	let s = textureSampleLevel( terrainSunShadowTex, smpLinearClamp, terrainUvOf( P.xz ), 0.0 );
+	let w = s.y * 0.012 + 0.35;
+	return mix( 1.0, smoothstep( -w, w, P.y - s.x ), terrainParams.sunBaked );
+#else
+	return 1.0;
+#endif
+}
+
+// the march's sun visibility after the shadow map (hills, clouds), only where light is left
+fn hazeVisibilityRest( P: vec3f, v0: f32 ) -> f32 {
+	var v = v0;
+#if HZ_TERRAIN
+	if ( v > 0.0 ) { v *= hazeTerrainSun( P ); }
+#endif
+#if HZ_CLOUDS
+	if ( v > 0.0 ) {
+		let L = frame.sunDir;
+		let g = P.xz - L.xz * ( max( P.y, 0.0 ) / max( L.y, 0.08 ) );
+		v *= cloudsShadow( g );
+	}
+#endif
+	return v;
+}
+
 // sun visibility at world position P: shadow cascades, hills, clouds
 fn hazeVisibility( P: vec3f ) -> f32 {
 	// (each lookup only where the ones before left some light)
@@ -402,6 +430,13 @@ fn fragment( in: FSIn ) -> vec4f {
 		let sigM = HZ_MARINE_SIGMA * hazeParams.density;
 		let sigA = HZ_AEROSOL_SIGMA * hazeParams.density;
 		var lit = 0.0; var all = 0.0; var tau = 0.0; var tPrev = 0.0;
+		// the ray in each cascade's light space is linear in t: its end points, once
+		let fwd = - vec3f( frame.view[ 0 ][ 2 ], frame.view[ 1 ][ 2 ], frame.view[ 2 ][ 2 ] );
+		var sc0: array<vec4f, 4>; var scd: array<vec4f, 4>;
+		for ( var c = 0; c < i32( shadowParams.count ); c++ ) {
+			sc0[ c ] = shadowParams.matrices[ c ] * vec4f( cam, 1.0 );
+			scd[ c ] = shadowParams.matrices[ c ] * vec4f( R.dir, 0.0 );
+		}
 		for ( var i = 0; i < ${ STEPS }; i++ ) {
 			// quadratic spacing: dense near the camera (palm and pier shafts), sparse far out (clouds, hills)
 			let u = ( f32( i ) + jitter ) / ${ f( STEPS ) };
@@ -414,7 +449,19 @@ fn fragment( in: FSIn ) -> vec4f {
 			tPrev = t;
 			let Tr = exp( - tau );
 			let w = sig * Tr * dt;
-			lit += w * hazeVisibility( P );
+			// sunShadowHard( P ) with the hoisted light-space ray
+			var v = 1.0;
+			if ( shadowParams.enabled > 0.5 ) {
+				let c = shadowCascadeOf( dot( P - frame.cameraPos, fwd ) );
+				if ( c >= 0 ) {
+					let sc = sc0[ c ] + scd[ c ] * t;
+					let suv = vec2f( sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5 );
+					if ( ! ( any( suv <= vec2f( 0.0 ) ) || any( suv >= vec2f( 1.0 ) ) || sc.z > 1.0 ) ) {
+						v = select( 0.0, 1.0, sc.z - 2e-5 <= _shadowDepth( suv, c ) );
+					}
+				}
+			}
+			lit += w * hazeVisibilityRest( P, v );
 			all += w;
 		}
 		// The lit share of the in-scatter (0..1) and the ratio of the marched in-scatter to its exact
