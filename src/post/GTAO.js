@@ -150,7 +150,8 @@ fn fragment( in: FSIn ) -> vec4f {
 	} else {
 		depth = gtaoSampleDepth( uvNode );
 	}
-	if ( depth >= 1.0 ) { return vec4f( 1.0 ); }
+	// nothing there (sky: the depth is reversed-Z, 0 at infinity): unoccluded, and never shown
+	if ( depth <= 0.0 ) { return vec4f( 1.0 ); }
 	let viewPosition = gtaoViewPosition( uvNode, depth );
 	let viewNormal = gtaoNormalFromDepth( uvNode );
 	let radius = gtao.radius;
