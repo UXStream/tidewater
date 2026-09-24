@@ -22,8 +22,12 @@ app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async ()
 	ui.setLoading( 1, 'Ready' );
 	await ui.hideLoader();
 	// frame-time benchmark and reference shots (see core/Bench.js): it drives the frames itself
-	if ( app.qs.has( 'bench' ) ) window.__bench = new ( await import( './core/Bench.js' ) ).Bench( app );
-	else app.start();
+	if ( app.qs.has( 'bench' ) ) {
+
+		window.__bench = new ( await import( './core/Bench.js' ) ).Bench( app );
+		if ( app.qs.has( 'auto' ) ) window.__job = window.__bench.auto( app.qs.get( 'auto' ), { runs: Number( app.qs.get( 'runs' ) ) || 1 } );
+
+	} else app.start();
 	ui.showStartOverlay( () => {
 
 		app.input.requestLock();

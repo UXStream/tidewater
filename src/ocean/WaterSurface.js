@@ -234,7 +234,8 @@ ${ T ? /* wgsl */`
 			let att = `waterSurfaceCascadeAttenuation( ${ c }, depth )`;
 			if ( DT && c >= C - 2 ) att += ' * rough';
 			else if ( DT && c === C - 3 ) att += ' * mix( 1.0, rough, 0.4 )';
-			cascadesF += `\td += textureSample( oceanDerivatives, smpAnisoRepeat, lagXZ / ocean.sizes[ ${ c } ].x, ${ c } ) * ( ${ att } );\n`;
+			// (4x anisotropy: 8x only sharpened the far grazing sea imperceptibly, at ~0.1 ms)
+			cascadesF += `\td += textureSample( oceanDerivatives, smpAniso4Repeat, lagXZ / ocean.sizes[ ${ c } ].x, ${ c } ) * ( ${ att } );\n`;
 
 		}
 
@@ -337,10 +338,10 @@ ${ DT ? '	whitecaps = whitecaps * mix( 0.5, 1.5, det.gust ) + det.streak * 0.5;'
 	// foam pattern: an irregular bubbly mat thresholded by coverage, so foam grows, tears into
 	// lace and dissolves naturally
 	let fuv = lagXZ * waterSurface.foamScale;
-	let p1 = textureSample( waterFoamTex, smpAnisoRepeat, fuv );
+	let p1 = textureSample( waterFoamTex, smpAniso4Repeat, fuv );
 	// second layer at another scale, rotated, to break repetition
 	let r2 = vec2f( fuv.x * 0.8 - fuv.y * 0.6, fuv.x * 0.6 + fuv.y * 0.8 );
-	let p2 = textureSample( waterFoamTex, smpAnisoRepeat, r2 * 2.37 + vec2f( 0.31, 0.77 ) );
+	let p2 = textureSample( waterFoamTex, smpAniso4Repeat, r2 * 2.37 + vec2f( 0.31, 0.77 ) );
 	let pattern = p1.x * 0.62 + p2.x * 0.38;
 	let thresh = 1.05 - coverage * 1.1;
 	let soft = 0.06 + footprint * 0.1;

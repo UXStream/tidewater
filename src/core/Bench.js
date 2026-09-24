@@ -17,6 +17,7 @@ import { VIEWS } from './DebugViews.js';
 // the side with the rod out) and 'boatHelm'.
 const MAX = 512;
 const _up = new Vector3( 0, 1, 0 );
+const DEFAULT_VIEWS = [ 'beach', 'pier', 'sunGlitter', 'village', 'underwater', 'aerial', 'palms', 'boatFish' ];
 
 export class Bench {
 
@@ -204,8 +205,33 @@ export class Bench {
 
 	}
 
+	// ?bench&auto=tag: reference shots (tag-view.bgra), then the timings (bench-tag.json), both uploaded
+	// to `url` (a local collector, see shots())
+	async auto( tag, { url = 'http://127.0.0.1:5190/', runs = 1 } = {} ) {
+
+		const views = [ ...DEFAULT_VIEWS, 'boatHelm' ];
+		await this.shots( views, { tag, url } );
+		// per view the fastest of the runs (clock and thermal drift only ever add time)
+		let best = null;
+		for ( let i = 0; i < runs; i ++ ) {
+
+			const r = await this.run( { views, top: 60 } );
+			if ( ! best ) best = r;
+			else for ( const v of views ) if ( r[ v ].gpu < best[ v ].gpu ) best[ v ] = r[ v ];
+
+		}
+
+		best.total = {
+			wall: + views.reduce( ( a, k ) => a + best[ k ].wall, 0 ).toFixed( 3 ),
+			gpu: + views.reduce( ( a, k ) => a + best[ k ].gpu, 0 ).toFixed( 3 ),
+		};
+		await fetch( url + 'bench-' + tag + '.json', { method: 'POST', body: JSON.stringify( best ) } );
+		return best.total;
+
+	}
+
 	// returns { view: { wall, gpu, passes } } (ms per frame; passes: the top per-pass GPU costs)
-	async run( { views = [ 'beach', 'pier', 'sunGlitter', 'village', 'underwater', 'aerial', 'palms', 'boatFish' ], warm = 90, frames = 120, dt = 1 / 60, top = 40 } = {} ) {
+	async run( { views = DEFAULT_VIEWS, warm = 90, frames = 120, dt = 1 / 60, top = 40 } = {} ) {
 
 		const app = this.app;
 		app.engine.stop();
@@ -253,7 +279,7 @@ export class Bench {
 	// hold still and the temporal filters converge) and upload the final image (raw BGRA8 after an
 	// 8-byte width / height header) to `url` + tag-view.bgra. The same sequence on the same code gives
 	// the same images, so a shot before and after a change can be compared pixel by pixel.
-	async shots( views = [ 'beach', 'pier', 'sunGlitter', 'village', 'underwater', 'aerial', 'palms', 'boatFish' ], { tag = 'shot', frames = 64, url = 'http://127.0.0.1:5190/' } = {} ) {
+	async shots( views = DEFAULT_VIEWS, { tag = 'shot', frames = 64, url = 'http://127.0.0.1:5190/' } = {} ) {
 
 		const app = this.app;
 		app.engine.stop();
