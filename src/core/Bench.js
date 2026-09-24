@@ -279,7 +279,9 @@ export class Bench {
 	// hold still and the temporal filters converge) and upload the final image (raw BGRA8 after an
 	// 8-byte width / height header) to `url` + tag-view.bgra. The same sequence on the same code gives
 	// the same images, so a shot before and after a change can be compared pixel by pixel.
-	async shots( views = DEFAULT_VIEWS, { tag = 'shot', frames = 64, url = 'http://127.0.0.1:5190/' } = {} ) {
+	// dt > 0: the clock runs (animated artefacts: noise the temporal filters don't settle); one image per
+	// `every` frames after the first `frames` is uploaded as tag-view-N.bgra when `seq` > 1
+	async shots( views = DEFAULT_VIEWS, { tag = 'shot', frames = 64, url = 'http://127.0.0.1:5190/', dt = 0, seq = 1, every = 1 } = {} ) {
 
 		const app = this.app;
 		app.engine.stop();
@@ -293,19 +295,23 @@ export class Bench {
 			app.post.outputTexture = this._out;
 			try {
 
-				await this._frames( frames, 0 );
+				await this._frames( frames, dt );
+				for ( let k = 0; k < seq; k ++ ) {
+
+					if ( k > 0 ) await this._frames( every, dt );
+					const img = await readTexture( this._out );
+					const body = new Uint8Array( 8 + img.data.byteLength );
+					new Uint32Array( body.buffer, 0, 2 ).set( [ img.width, img.height ] );
+					body.set( new Uint8Array( img.data ), 8 );
+					await fetch( url + tag + '-' + name + ( seq > 1 ? '-' + k : '' ) + '.bgra', { method: 'POST', body } );
+
+				}
 
 			} finally {
 
 				app.post.outputTexture = null;
 
 			}
-
-			const img = await readTexture( this._out );
-			const body = new Uint8Array( 8 + img.data.byteLength );
-			new Uint32Array( body.buffer, 0, 2 ).set( [ img.width, img.height ] );
-			body.set( new Uint8Array( img.data ), 8 );
-			await fetch( url + tag + '-' + name + '.bgra', { method: 'POST', body } );
 
 		}
 

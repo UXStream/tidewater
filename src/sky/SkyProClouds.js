@@ -574,6 +574,11 @@ fn cloudsSample( dir: vec3f ) -> vec4f {
 	return vec4f( s.rgb * below, mix( 1.0, s.a, below ) );
 }
 
+// Transmittance for the sun's disc behind the clouds. The cloud march stops once less than 0.3 % of
+// the light gets through and reports that remainder, which (noisy from frame to frame) let a
+// clamped sun disc of 2500x the sky shine and sparkle through thick cloud: below ~0.4 % it is dark.
+fn cloudsSunTransmittance( T: f32 ) -> f32 { return T * smoothstep( 0.004, 0.04, T ); }
+
 // The main view's clouds: the temporally reconstructed half resolution history, looked up with the
 // camera it was resolved for; outside it (or before any trace) the panorama
 fn cloudsSampleView( dir: vec3f ) -> vec4f {

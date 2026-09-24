@@ -1,5 +1,6 @@
 import { ShaderModule, UniformBlock } from '../engine/gpu/Shader.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
+import { surfaceModule } from '../engine/render/wgsl/lighting.js';
 import { SceneLighting } from './SceneLighting.js';
 
 // Screen-space contact shadows for the sun: the fine shadows the cascaded maps miss (pebbles, shells,
@@ -97,7 +98,7 @@ export function installContactShadows( { depthTexture, skip = [] } ) {
 
 	ContactShadows.module = new ShaderModule( {
 		name: 'hook-contactShadow',
-		deps: [ commonModule ],
+		deps: [ commonModule, surfaceModule ],
 		uniforms: params,
 		uniformName: 'contactShadowParams',
 		bindings: { contactDepth: { texture: () => ContactShadows.depthTexture } },
@@ -110,16 +111,20 @@ fn hookContactShadow( P: vec3f, N: vec3f ) -> f32 {
 	let L = frame.sunDir;
 	let fwd = -vec3f( frame.view[ 0 ][ 2 ], frame.view[ 1 ][ 2 ], frame.view[ 2 ][ 2 ] );
 	let w0 = dot( P - frame.cameraPos, fwd );
-	// depth change per pixel on this surface (before any branch)
-	let slope = max( abs( dpdx( w0 ) ), abs( dpdy( w0 ) ) );
+	// depth change per pixel on this surface: taken by shadeSurface before its branches (this hook
+	// runs only for sunlit fragments, where screen derivatives are undefined at the edges)
+	let slope = lightDepthSlope;
 	var vis = 1.0;
 	let lit = dot( frame.sunColor, frame.sunColor ) > 1e-8 && dot( N, L ) > 0.02;
 	if ( contactShadowParams.strength > 0.0 && w0 < ${ MAX_DIST }.0 && lit && P.y > frame.seaLevel - 0.3 ) {
 
 		let texSize = vec2f( textureDimensions( contactDepth ) );
 		let len = smoothstep( 2.0, 30.0, w0 ) * 0.7 + 0.3;
-		let q0 = frame.prevViewProjNoJitter * vec4f( P, 1.0 );
-		let qd = frame.prevViewProjNoJitter * vec4f( L * len, 0.0 );
+		// last frame's depth was rendered with last frame's jitter: project the same way
+		var q0 = frame.prevViewProjNoJitter * vec4f( P, 1.0 );
+		var qd = frame.prevViewProjNoJitter * vec4f( L * len, 0.0 );
+		q0 = vec4f( q0.xy + frame.prevJitter * q0.w, q0.zw );
+		qd = vec4f( qd.xy + frame.prevJitter * qd.w, qd.zw );
 		let bias = slope * 2.0 + w0 * 0.002 + 0.01;
 		// screen coordinate of P (the hook has no fragment coordinate)
 		let cc = frame.viewProj * vec4f( P, 1.0 );

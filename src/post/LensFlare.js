@@ -101,7 +101,7 @@ fn main() {
 	let c = flareParams.sunUV * vec2f( size );
 	var sky = 0.0;
 ${ taps }
-	let cloudT = ${ hasClouds ? 'cloudsSampleView( flareParams.sunDir ).a' : '1.0' };
+	let cloudT = ${ hasClouds ? 'cloudsSunTransmittance( cloudsSampleView( flareParams.sunDir ).a )' : '1.0' };
 	let up = smoothstep( -0.02, 0.04, flareParams.sunDir.y );
 	let tgt = sky / ${ f( VIS_TAPS ) } * cloudT * up * flareParams.inView * flareParams.aboveWater;
 	let v = flareVisRW[ 0 ];

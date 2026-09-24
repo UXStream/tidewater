@@ -226,6 +226,12 @@ fn hazeLayerDepth( sigma: f32, H: f32, hc: f32, vy: f32, d: f32 ) -> f32 {
 	return base * fk;
 }
 
+// unshadowed in-scatter depth of both layers from height hc along a ray (direction y component vy)
+// over distance d: 1 - their transmittance
+fn hazeInScatter( hc: f32, vy: f32, d: f32 ) -> f32 {
+	return 1.0 - exp( - ( hazeLayerDepth( HZ_MARINE_SIGMA, HZ_MARINE_H, hc, vy, d ) + hazeLayerDepth( HZ_AEROSOL_SIGMA, HZ_AEROSOL_H, hc, vy, d ) ) * hazeParams.density );
+}
+
 // Cornette-Shanks (strong forward lobe) plus a little isotropic scattering
 // (a softer lobe than coastal aerosol's ~0.76: toward the sun the haze glared over everything
 // in front of it and washed distant foliage out to white)
@@ -343,8 +349,13 @@ fn hazeApply( uv: vec2f, c: vec4f ) -> vec4f {
 					acc += s.xy * wt;
 					wSum += wt;
 				}
+				// The upsample carries the lit share of the in-scatter and the march's ratio to the exact
+				// in-scatter; the exact in-scatter is then taken over this pixel's own ray. Upsampling the
+				// in-scatter itself gave a thin frond in front of the low sun, whose half resolution
+				// neighbours all lie far behind it, their long rays' in-scatter: bright, flickering specks.
 				let sh = acc / wSum;
-				let lit = sh.x; let all = max( sh.y, sh.x );
+				let all = sh.y * hazeInScatter( camH, dir.y, min( dist, ${ f( MARCH_DIST ) } ) );
+				let lit = sat( sh.x ) * all;
 				let near = Ep * lit * ( 1.0 - h ) * hazeParams.shafts;
 				let deficit = fog * fSun * ( all - lit ) * h;
 				out = max( out + near - deficit, vec3f( 0.0 ) );
@@ -403,7 +414,11 @@ fn fragment( in: FSIn ) -> vec4f {
 			lit += w * hazeVisibility( P );
 			all += w;
 		}
-		out = vec4f( lit, all, R.dist, 1.0 );
+		// The lit share of the in-scatter (0..1) and the ratio of the marched in-scatter to its exact
+		// value over this ray: both smooth across depth edges, unlike the in-scatter itself, which
+		// grows with the distance (see the composite)
+		let exact = hazeInScatter( max( cam.y - frame.seaLevel, 0.0 ), R.dir.y, tMax );
+		out = vec4f( lit / max( all, 1e-12 ), all / max( exact, 1e-12 ), R.dist, 1.0 );
 	}
 	return out;
 }
@@ -424,7 +439,7 @@ fn fragment( in: FSIn ) -> vec4f {
 		let uv = in.uv;
 		let dir = underwaterWorldDir( uv );
 #if HZ_CLOUDS
-		let cloudT = cloudsSampleView( dir ).a;
+		let cloudT = cloudsSunTransmittance( cloudsSampleView( dir ).a );
 #else
 		let cloudT = 1.0;
 #endif
@@ -449,7 +464,7 @@ fn fragment( in: FSIn ) -> vec4f {
 			for ( let j = 0; j < SS_TAPS; j ++ ) {
 
 				const w = Math.pow( decay, j );
-				taps += `\t\tacc += textureSampleLevel( hzSrc, smpLinearClamp, uv + step * ${ f( j ) }, 0.0 ).r * ${ f( w ) };\n`;
+				taps += `\t\tacc += textureSampleLevel( hzSrc, smpLinearClamp, uv + step * ( ${ f( j ) } + jit ), 0.0 ).r * ${ f( w ) };\n`;
 				wSum += w;
 
 			}
@@ -465,6 +480,10 @@ fn fragment( in: FSIn ) -> vec4f {
 	if ( hazeParams.ssFade > 0.001 ) {
 		let uv = in.uv;
 		let step = ( hazeParams.sunUV - uv ) * ${ f( span / SS_TAPS ) };
+		// taps shifted by a per pixel, per frame fraction of a step: the fixed taps drew hard radial
+		// streaks through cloud gaps and foliage; jittered, the temporal resolve blends them
+		// (centred on 0: the average over frames keeps the fixed taps' result)
+		let jit = fract( interleavedGradientNoise( in.pos.xy ) + hazeParams.frame * 0.61803398875 + ${ f( p * 0.37 ) } ) - 0.5;
 		var acc = 0.0;
 ${ taps }
 		out = vec4f( acc / ${ f( wSum ) }, 0.0, 0.0, 1.0 );

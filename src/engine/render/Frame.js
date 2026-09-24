@@ -27,6 +27,8 @@ const FRAME_FIELDS = {
 	outputResolution: [ 'vec2f', new Vector2( 1, 1 ) ],
 	// sub-pixel jitter in NDC units (applied in viewProj)
 	jitter: [ 'vec2f', new Vector2() ],
+	// last frame's jitter (NDC): last frame's buffers were rendered with it (prevViewProjNoJitter + this)
+	prevJitter: [ 'vec2f', new Vector2() ],
 	frameIndex: [ 'u32', 0 ],
 	time: [ 'f32', 0 ], // simulation time (s)
 	dt: [ 'f32', 1 / 60 ],
@@ -59,7 +61,7 @@ const FRAME_FIELDS = {
 };
 
 const CAMERA_FIELDS = [ 'view', 'proj', 'viewProj', 'invView', 'invProj', 'invViewProj', 'viewProjNoJitter', 'prevViewProjNoJitter',
-	'cameraPos', 'near', 'prevCameraPos', 'far', 'resolution', 'invResolution', 'jitter', 'reversedDepth' ];
+	'cameraPos', 'near', 'prevCameraPos', 'far', 'resolution', 'invResolution', 'jitter', 'prevJitter', 'reversedDepth' ];
 
 // The main frame block (main camera; also what compute shaders see).
 export const FrameUniforms = new UniformBlock( 'Frame', FRAME_FIELDS, { label: 'frame' } );
@@ -134,6 +136,7 @@ export function setFrameCamera( camera, width, height, { jitterX = 0, jitterY = 
 	F.far.value = camera.far;
 	F.resolution.value = new Vector2( width, height );
 	F.invResolution.value = new Vector2( 1 / width, 1 / height );
+	F.prevJitter.value = F.jitter.value ? F.jitter.value.clone() : new Vector2();
 	F.jitter.value = new Vector2( jx, jy );
 	F.reversedDepth.value = camera.reversedDepth === false ? 0 : 1;
 

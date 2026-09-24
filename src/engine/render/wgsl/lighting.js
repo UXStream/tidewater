@@ -288,6 +288,10 @@ fn defaultSurface( N: vec3f ) -> Surface {
 	return s;
 }
 
+// view-depth change per pixel of the surface being lit, taken at the top of shadeSurface (every
+// lane of the quad is live there; the hooks run in branches, where derivatives are undefined)
+var<private> lightDepthSlope: f32 = 0.0;
+
 struct LightAccum {
 	directDiffuse: vec3f,
 	directSpecular: vec3f,
@@ -383,6 +387,12 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 	var acc: LightAccum;
 	acc.directDiffuse = vec3f( 0.0 ); acc.directSpecular = vec3f( 0.0 );
 	acc.indirectDiffuse = vec3f( 0.0 ); acc.indirectSpecular = vec3f( 0.0 );
+
+	{
+		let fwdV = -vec3f( frame.view[ 0 ][ 2 ], frame.view[ 1 ][ 2 ], frame.view[ 2 ][ 2 ] );
+		let wP = dot( P - frame.cameraPos, fwdV );
+		lightDepthSlope = max( abs( dpdx( wP ) ), abs( dpdy( wP ) ) );
+	}
 
 	// ---- sun / moon
 	let L = frame.sunDir;

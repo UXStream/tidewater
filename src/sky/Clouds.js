@@ -710,6 +710,11 @@ fn cloudsSample( dir: vec3f ) -> vec4f {
 // it was traced with (it can lag behind: underwater frames skip the tracing); directions outside
 // it, or a texture without data yet (startup, resize), fall back to the panorama, so the sky can
 // never show empty texels
+// Transmittance for the sun's disc behind the clouds. The cloud march stops once less than 0.3 % of
+// the light gets through and reports that remainder, which (noisy from frame to frame) let a
+// clamped sun disc of 2500x the sky shine and sparkle through thick cloud: below ~0.4 % it is dark.
+fn cloudsSunTransmittance( T: f32 ) -> f32 { return T * smoothstep( 0.004, 0.04, T ); }
+
 fn cloudsSampleView( dir: vec3f ) -> vec4f {
 	let uv = cloudsProject( dir, cloudsParams.viewRight, cloudsParams.viewUp, cloudsParams.viewFwd, cloudsParams.viewTan );
 	let inside = cloudsParams.viewValid > 0.5 && dot( dir, cloudsParams.viewFwd ) > 0.01 && uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;

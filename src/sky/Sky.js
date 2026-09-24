@@ -187,10 +187,13 @@ fn skyReflectionRadiance( dir: vec3f ) -> vec3f {
 	${ composite( 'cloudsSample' ) }
 }
 
-// Main view background: full resolution clouds for the camera's view.
+// Main view background: full resolution clouds for the camera's view (the sun's disc behind them
+// with cloudsSunTransmittance: no sun through the cut-off remainder of thick cloud)
 fn skyViewRadiance( dir: vec3f ) -> vec3f {
-	let base = skyBackground( dir, 1.0 ) + skyMoon( dir ) + skySunDisk( dir );
-	${ composite( 'cloudsSampleView' ) }
+	let base = skyBackground( dir, 1.0 ) + skyMoon( dir );
+	let sun = skySunDisk( dir );
+	${ clouds ? `let c = cloudsSampleView( dir );
+	return base * c.a + sun * cloudsSunTransmittance( c.a ) + c.rgb;` : 'return base + sun;' }
 }
 `,
 		} );
