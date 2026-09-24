@@ -414,6 +414,19 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 				uvF = uvRc;
 				dR = rd;
 				found = true;
+			} else if ( rc.a > 0.5 && rd > 0.0 ) {
+				// the end point lies on something in front (a pile, a hull): what lies straight behind
+				// this pixel, from the same (lit) source. The opaque copy shades deep seabed cheaply and
+				// flickered against it as the piles passed in front while walking the pier.
+				let uvS = clamp( screenUV, vec2f( 0.001 ), vec2f( 0.999 ) );
+				let rcS = textureSampleLevel( waterRefrColor, smpLinearClamp, uvS, 0.0 );
+				let rdS = textureLoad( waterRefrDepth, vec2i( min( uvS * rSize, rSize - 1.0 ) ), 0 ).x;
+				if ( rcS.a > 0.5 && rdS > 0.0 && surfViewZ + viewDepth( rdS ) > 0.05 ) {
+					sceneCol = rcS.rgb / rcS.a;
+					uvF = uvS;
+					dR = rdS;
+					found = true;
+				}
 			}
 		}
 #endif

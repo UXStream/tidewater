@@ -67,6 +67,9 @@ SIL Open Font License 1.1. They are loaded from Google Fonts at runtime and are 
 
 ## Libraries
 
+The SMAA area and search lookup textures (`public/textures/smaa/`) are from three.js (MIT), which ships
+them from J. Jimenez et al.'s SMAA reference implementation (MIT).
+
 [Vite](https://vite.dev) (MIT) is an npm dependency and is not vendored here.
 
 ## Techniques and references
@@ -81,6 +84,7 @@ These are published techniques. No code from the papers is included.
 | Motion blur | M. McGuire et al., *A Reconstruction Filter for Plausible Motion Blur* (2012); J. Jimenez, *Next Generation Post Processing in Call of Duty: Advanced Warfare* (2014) |
 | Bloom | J. Jimenez (2014) |
 | Sharpening (RCAS) | AMD FidelityFX Super Resolution 1 |
+| SMAA / FXAA | J. Jimenez et al., *SMAA: Enhanced Subpixel Morphological Antialiasing* (2012); T. Lottes, *FXAA* (2009); ported from three.js' SMAANode / FXAANode (MIT) |
 | Rasterized caustics | Evan Wallace's *WebGL Water* approach |
 | Breaking waves | Guerrilla Games, *Horizon Forbidden West* water (SIGGRAPH 2022) |
 

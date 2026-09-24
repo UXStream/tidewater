@@ -231,6 +231,8 @@ export class AppUI {
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
 		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => app.setRenderScale( v ) } );
+		s.aa = app.post.aaMode;
+		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'TAA: temporal anti-aliasing and upscaling (also resolves the dithered fades and soft shadow noise). SMAA / FXAA: spatial filters, sharper in motion, no upscaling.', options: [ { label: 'None', value: 'none' }, { label: 'TAA', value: 'taa' }, { label: 'SMAA', value: 'smaa' }, { label: 'FXAA', value: 'fxaa' } ], onChange: ( v ) => { app.post.aaMode = v; } } );
 		quality.addToggle( { label: 'Shadows', object: s, key: 'shadows', onChange: ( v ) => { app.shadows.enabled = v; } } );
 		s.ssr = true;
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );

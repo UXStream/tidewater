@@ -8,6 +8,7 @@ import { LENS_REACH } from './Underwater.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
 import { MathUtils, Matrix4, Vector2, Vector3 } from '../engine/math/index.js';
 import { GTAO } from './GTAO.js';
+import { AntiAlias } from './AntiAlias.js';
 import { TemporalUpscale } from './TemporalUpscale.js';
 import { LensDroplets } from './LensDroplets.js';
 import { LensFlare } from './LensFlare.js';
@@ -183,6 +184,10 @@ ${ taps }
 
 		// ---- temporal anti-aliasing + upscale
 		this.taau = new TemporalUpscale( () => this.beauty.texture, this.finalDepth, sceneRenderer.velocityTexture, camera, sceneRenderer.waterMaskTexture );
+		// anti-aliasing: 'taa' (the temporal upscaler, jittered camera) or a spatial filter ('smaa',
+		// 'fxaa', 'none') writing the same resolved image (AntiAlias.js)
+		this.aaMode = 'taa';
+		this.aa = new AntiAlias( { src: () => this.beauty.texture, exposure: this.exposure } );
 
 		// ---- camera + object motion blur on the resolved image (gathered in the final pass, before
 		// bloom and the screen-fixed lens effects)
@@ -620,7 +625,7 @@ fn fragment( in: FSIn ) -> vec4f {
 		if ( cam.matrixWorldInverse ) cam.matrixWorldInverse.copy( cam.matrixWorld ).invert();
 		this.motionBlur.updateCamera( cam );
 		this.taau.advance();
-		const [ jx, jy ] = this.taau.jitter();
+		const [ jx, jy ] = this.aaMode === 'taa' ? this.taau.jitter() : [ 0, 0 ];
 		// three's setViewOffset( w, h, jx, jy, w, h ) moves the view window by +jx px right / +jy px down,
 		// i.e. a clip-space translation of ( -2 jx / w, +2 jy / h )
 		setFrameCamera( cam, this._inW, this._inH, {
@@ -657,7 +662,19 @@ fn fragment( in: FSIn ) -> vec4f {
 		}
 
 		this._beautyPass.render( { colorViews: [ this.beauty.texture ], clear: CLR } );
-		this.taau.render();
+		if ( this.aaMode === 'taa' ) {
+
+			this.taau.render();
+
+		} else {
+
+			// into the upscaler's other history target (the resolved image); it restarts when TAA returns
+			const t = this.taau, dst = 1 - t._cur;
+			this.aa.render( this.aaMode, t.history[ dst ].textures[ 0 ] );
+			t._cur = dst;
+			t._needsRestart = true;
+
+		}
 		for ( const [ pass, rt ] of this._bloomPasses ) pass.render( { colorViews: [ rt.texture ], clear: CLR } );
 		const out = this.outputTexture ? this.outputTexture.view( { dimension: '2d', mipLevelCount: 1 } ) : GPU.context.getCurrentTexture().createView();
 		this._finalPass.render( { colorViews: [ out ], clear: CLR } );

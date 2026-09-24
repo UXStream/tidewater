@@ -148,6 +148,8 @@ const haze = new AirHaze( { depthTexture: sceneRenderer.sceneRT.depthTexture, un
 const engine = { width: W, height: H };
 const sunDirU = realApp ? atmosphere.sunDir : { value: G.sunDir.value.clone() };
 const post = new PostFX( engine, { sceneRenderer, camera, underwater, clouds, sunDir: sunDirU, haze } );
+// AA=none|taa|smaa|fxaa: the anti-aliasing mode (SMAA's lookup textures are read from public/)
+if ( process.env.AA ) post.aaMode = process.env.AA;
 post.outputTexture = new Texture( { label: 'out', width: W, height: H, format: 'rgba8unorm', usage: [ 'render', 'copySrc', 'sample' ] } );
 if ( process.env.SCALE ) post.setScale( Number( process.env.SCALE ) );
 if ( process.env.AO_SAMPLES ) post.aoPass.samples.value = Number( process.env.AO_SAMPLES );
