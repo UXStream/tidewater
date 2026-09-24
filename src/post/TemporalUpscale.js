@@ -15,6 +15,12 @@ const CLR = [ 0, 0, 0, 0 ];
 //  - the history is resampled with a 5-tap Catmull-Rom filter instead of bilinear. Bilinear
 //    resampling blurs the accumulated image a little more on every frame the camera moves.
 //  - the current-frame weight is a uniform (higher at 1:1 than when upscaling from lower res).
+//  - even Catmull-Rom loses fine detail when it samples between texels (a 0.2 px offset keeps ~80%
+//    of the finest detail, 0.5 px much less), and while walking the history is resampled that way on
+//    every frame: the distant deck turned to mush, and the clip popped the aliased plank gaps of the
+//    new frames in and out of it. Each pixel keeps the blur its history has gathered (the variance
+//    the resamples added, decayed by the blend) and takes a larger share of the new frame the more
+//    blurred its history is. A still camera resamples at texel centres (no blur, no extra weight).
 // The camera jitter is driven by the post chain: PostFX.beginFrame() takes jitter() for the frame's
 // camera (setFrameCamera) and endFrame() calls clearViewOffset() to advance the Halton sequence.
 // The history is ping-ponged (the resolve writes the other target) instead of copied.
@@ -68,7 +74,10 @@ export class TemporalUpscale {
 		// three's TAAUNode (r186) resolves into a single-attachment target and copies only the colour into
 		// the history, so its lock history stays at the seed value (0) and the lock is this frame's
 		// thin-feature term alone: no lock history target (it was written and read with a weight of 0)
-		const hist = () => ( { colors: [ { format: 'rgba16float', name: 'color' } ], label: 'taauHistory' } );
+		// history: the resolved colour, and the flicker statistics of each pixel (x: recent size of the
+		// clip's corrections, y: their signed average; see the resolve; z: the blur accumulated by the
+		// history resamples, in pixels squared)
+		const hist = () => ( { colors: [ { format: 'rgba16float', name: 'color' }, { format: 'rgba16float', name: 'stability' } ], label: 'taauHistory' } );
 		this.history = [ new RenderTarget( 1, 1, hist() ), new RenderTarget( 1, 1, hist() ) ];
 		this._cur = 0;
 		this._prevDepth = new Texture( { label: 'taauPrevDepth', width: 1, height: 1, format: 'depth32float', usage: [ 'sample', 'copyDst' ] } );
@@ -126,27 +135,26 @@ export class TemporalUpscale {
 			taauVelocity: { texture: () => this.velocityTexture },
 			taauMask: { texture: () => this.waterMaskTexture || this.velocityTexture },
 			taauHistory: { texture: () => this.history[ src ].textures[ 0 ] },
+			taauStability: { texture: () => this.history[ src ].textures[ 1 ] },
 		} );
 
 		const code = /* wgsl */`
-fn taauClipAABB( currentColor: vec4f, historyColor: vec4f, minColor: vec4f, maxColor: vec4f ) -> vec4f {
-	let pClip = ( maxColor.rgb + minColor.rgb ) * 0.5;
-	let eClip = ( maxColor.rgb - minColor.rgb ) * 0.5 + 1e-7;
-	let vClip = historyColor - vec4f( pClip, currentColor.a );
-	let vUnit = vClip.xyz / eClip;
-	let absUnit = abs( vUnit );
-	let maxUnit = max( absUnit.x, max( absUnit.y, absUnit.z ) );
-	return select( historyColor, vec4f( pClip, currentColor.a ) + vClip / maxUnit, maxUnit > 1.0 );
+// luma weighted tone map (Karis 2014) and its inverse: the resolve works on bounded values
+fn taauTonemap( c: vec3f ) -> vec3f { return c / ( 1.0 + luminance( c ) ); }
+fn taauTonemapInverse( c: vec3f ) -> vec3f { return c / max( 1.0 - luminance( c ), 1e-4 ); }
+fn taauToYCoCg( c: vec3f ) -> vec3f {
+	return vec3f( dot( c, vec3f( 0.25, 0.5, 0.25 ) ), dot( c, vec3f( 0.5, 0.0, -0.5 ) ), dot( c, vec3f( -0.25, 0.5, -0.25 ) ) );
 }
+fn taauFromYCoCg( c: vec3f ) -> vec3f { return vec3f( c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z ); }
 
-fn taauFlickerReduction( currentColor: vec4f, historyColor: vec4f, currentWeight: f32 ) -> vec4f {
-	let compressedCurrent = currentColor * ( 1.0 / ( max( currentColor.r, max( currentColor.g, currentColor.b ) ) + 1.0 ) );
-	let compressedHistory = historyColor * ( 1.0 / ( max( historyColor.r, max( historyColor.g, historyColor.b ) ) + 1.0 ) );
-	let luminanceCurrent = luminance( compressedCurrent.rgb );
-	let luminanceHistory = luminance( compressedHistory.rgb );
-	let weightCurrent = currentWeight / ( luminanceCurrent + 1.0 );
-	let weightHistory = ( 1.0 - currentWeight ) / ( luminanceHistory + 1.0 );
-	return ( currentColor * weightCurrent + historyColor * weightHistory ) / max( weightCurrent + weightHistory, 0.00001 );
+// move the history toward the box centre until it is inside the box (Playdead / Karis clip)
+fn taauClip( h: vec3f, lo: vec3f, hi: vec3f ) -> vec3f {
+	let center = ( hi + lo ) * 0.5;
+	let extent = max( ( hi - lo ) * 0.5, vec3f( 1e-6 ) );
+	let v = h - center;
+	let u = abs( v / extent );
+	let m = max( u.x, max( u.y, u.z ) );
+	return select( h, center + v / m, m > 1.0 );
 }
 
 // Catmull-Rom history lookup with 5 bilinear taps (the 4 corner taps are dropped)
@@ -194,7 +202,8 @@ fn taauPreviousDepth( uv: vec2f ) -> f32 {
 	return ( ( near + viewZ ) * far ) / ( ( far - near ) * viewZ );
 }
 
-fn fragment( in: FSIn ) -> vec4f {
+struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) stability: vec4f };
+@fragment fn fs( in: FSIn ) -> TaauOut {
 	let uvNode = in.uv;
 	let inputSizeF = vec2f( textureDimensions( taauBeauty ) );
 
@@ -237,54 +246,80 @@ fn fragment( in: FSIn ) -> vec4f {
 	let isWater = taau.hasWaterMask > 0.5 && textureLoad( taauMask, clamp( closestTap, vec2i( 0 ), ms - 1 ), 0 ).g > 0.5;
 	let hasValidHistory = isValidUV && ( isEdge || ! isDisocclusion || isWater );
 
-	// 9-tap Blackman-Harris (Gaussian approximation) reconstruction of the current frame and
-	// the moments for the variance clip
-	var sumColor = vec4f( 0.0 );
+	// Neighbourhood statistics, the current frame's reconstruction and the blend all work on a tone
+	// mapped (luma weighted, Karis 2014) YCoCg version of the colour: in raw HDR a few very bright
+	// samples (sun glints on the water, sunlit rails) dominate the variance and the blend, so the clip
+	// box jumps from frame to frame and thin bright or dark details flicker.
+	var sumColor = vec3f( 0.0 );
 	var sumWeight = 0.0;
-	var moment1 = vec4f( 0.0 );
-	var moment2 = vec4f( 0.0 );
+	var moment1 = vec3f( 0.0 );
+	var moment2 = vec3f( 0.0 );
+	var minC = vec3f( 1e9 );
+	var maxC = vec3f( -1e9 );
 	for ( var y = -1; y <= 1; y++ ) {
 		for ( var x = -1; x <= 1; x++ ) {
 			let tap = closestTap + vec2i( x, y );
 			let delta = pIn - ( vec2f( tap ) + ( vec2f( 0.5 ) + taau.jitterOffset ) );
-			let w = exp( dot( delta, delta ) * -2.29 );
-			let c = max( taauLoadBeauty( tap ), vec4f( 0.0 ) );
+			// 9-tap Gaussian reconstruction at the output pixel (narrow: the jitter already box filters
+			// over the pixel, a wider kernel only softens the image)
+			let w = exp( dot( delta, delta ) * -4.5 );
+			let c = taauToYCoCg( taauTonemap( max( taauLoadBeauty( tap ).rgb, vec3f( 0.0 ) ) ) );
 			sumColor += c * w;
 			sumWeight += w;
 			moment1 += c;
 			moment2 += c * c;
+			minC = min( minC, c );
+			maxC = max( maxC, c );
 		}
 	}
+	let current = sumColor / max( sumWeight, 1e-5 );
 
-	let currentColor = sumColor / max( sumWeight, 1e-5 );
-
-	let mean = moment1 / 9.0;
+	// clip box: the variance box (Salvi 2016) intersected with the neighbourhood's own extent. The
+	// variance box alone can reach past any colour actually present (history outside the neighbourhood
+	// survives); the extent alone flickers with every noisy sample. Wider while still, tighter in motion.
 	let motionFactor = sat( length( ( uvNode - historyUV ) * inputSizeF ) / taau.maxVelocityLength );
-	let varianceGamma = mix( 0.5, 1.0, pow2( 1.0 - motionFactor ) );
-	let variance = sqrt( max( moment2 / 9.0 - mean * mean, vec4f( 0.0 ) ) ) * varianceGamma;
-	let minColor = mean - variance;
-	let maxColor = mean + variance;
+	let gamma = mix( 1.5, 0.85, sat( motionFactor * 8.0 ) );
+	let mean = moment1 / 9.0;
+	let sigma = sqrt( max( moment2 / 9.0 - mean * mean, vec3f( 0.0 ) ) );
+	let lo0 = max( minC, mean - sigma * gamma );
+	let hi0 = min( maxC, mean + sigma * gamma );
+	let historyYC = taauToYCoCg( taauTonemap( taauSampleHistory( historyUV ).rgb ) );
 
-	let historyColor = taauSampleHistory( historyUV );
-	let clippedHistoryColor = taauClipAABB( clamp( mean, minColor, maxColor ), historyColor, minColor, maxColor );
+	// Flicker. Detail thinner than a pixel (distant plank gaps, rails, wires) is only in some of the
+	// jittered frames: in a frame whose neighbourhood misses it, the clip strips it from the history,
+	// and the next frame that hits it brings it back, so it pops on and off. Such pixels are found by
+	// the clip's corrections: large, but cancelling out over a few frames (a real change, a moving
+	// shadow or swaying leaves, pushes the same way frame after frame). There the box is widened and
+	// the new frames weigh less, so the detail averages out instead of popping.
+	let tight = taauClip( historyYC, lo0, hi0 );
+	let corr = ( tight.x - historyYC.x ) / max( hi0.x - lo0.x, 0.02 );
+	let stPrev3 = select( vec3f( 0.0 ), textureSampleLevel( taauStability, smpLinearClamp, historyUV, 0.0 ).xyz, hasValidHistory );
+	let stPrev = stPrev3.xy;
+	let flicker = select( sat( ( stPrev.x - abs( stPrev.y ) ) * 3.0 ), 0.0, isWater );
+	let st = select( vec2f( 0.0 ), mix( stPrev, vec2f( abs( corr ), corr ), 0.25 ), hasValidHistory );
+	let pad = ( sigma * 2.0 + vec3f( 0.05, 0.025, 0.025 ) ) * flicker;
+	let clipped = taauClip( historyYC, lo0 - pad, hi0 + pad );
 
-	// thin features lock the history a little (less flicker on wires, masts, leaves)
-	let meanLuma = luminance( mean.rgb );
-	let thinFeature = smoothstep( 0.0, 0.2, abs( luminance( currentColor.rgb ) - meanLuma ) / meanLuma );
-	let isDepthChanged = abs( closestDepth - previousDepth ) > taau.depthThreshold;
-	let canLock = isValidUV && ! isDepthChanged;
-	let gatedThinFeature = select( 0.0, thinFeature, canLock );
-	let lock = sat( gatedThinFeature );
-	let lockedHistoryColor = mix( clippedHistoryColor, historyColor, lock );
-
-	// fast camera motion trusts the current frame more; capped on water, whose fine detail shimmers under the jitter
-	let motionW = select( motionFactor, min( motionFactor, 0.15 ), isWater );
-	let currentWeight = select( 1.0, sat( taau.frameWeight + motionW ), hasValidHistory );
-	return taauFlickerReduction( currentColor, lockedHistoryColor, currentWeight );
+	// blend: a small share of the new frame (more in fast motion, capped on water, whose fine detail
+	// shimmers under the jitter; more where the history is blurred by resampling; less where it
+	// flickers), all of it where there is no usable history. The history's blur grows by the variance
+	// of this frame's resample (f (1 - f) per axis, f the offset from the texel centres) and shrinks
+	// by the share of the (sharp) new frame.
+	let hf = fract( historyUV * vec2f( textureDimensions( taauHistory ) ) - 0.5 );
+	let hv = hf * ( 1.0 - hf );
+	let blurAcc = stPrev3.z + hv.x + hv.y;
+	let moveW = motionFactor + blurAcc * 0.5;
+	let motionW = select( moveW, min( moveW, 0.15 ), isWater );
+	let currentWeight = select( 1.0, sat( taau.frameWeight + motionW ) * ( 1.0 - flicker * 0.6 ), hasValidHistory );
+	let blended = mix( clipped, current, currentWeight );
+	var out: TaauOut;
+	out.color = vec4f( taauTonemapInverse( taauFromYCoCg( blended ) ), 1.0 );
+	out.stability = vec4f( st, select( 0.0, blurAcc * ( 1.0 - currentWeight ), hasValidHistory ), 1.0 );
+	return out;
 }
 `;
 
-		const formats = [ 'rgba16float' ];
+		const formats = [ 'rgba16float', 'rgba16float' ];
 		// resolve[ i ] reads history i and writes history 1 - i
 		this._resolve = [ 0, 1 ].map( ( src ) => new FullscreenPass( { label: 'TAAU', bindings: bindings( src ), colorFormats: formats, code } ) );
 		// Seed the history with a bilinear upscale of the current beauty buffer. Without this the first
@@ -292,7 +327,13 @@ fn fragment( in: FSIn ) -> vec4f {
 		this._seed = new FullscreenPass( {
 			label: 'TAAU seed', colorFormats: formats, bindings: { taauBeauty: { texture: beautyTex } },
 			code: /* wgsl */`
-fn fragment( in: FSIn ) -> vec4f { return textureSampleLevel( taauBeauty, smpLinearClamp, in.uv, 0.0 ); }
+struct TaauSeedOut { @location( 0 ) color: vec4f, @location( 1 ) stability: vec4f };
+@fragment fn fs( in: FSIn ) -> TaauSeedOut {
+	var o: TaauSeedOut;
+	o.color = vec4f( textureSampleLevel( taauBeauty, smpLinearClamp, in.uv, 0.0 ).rgb, 1.0 );
+	o.stability = vec4f( 0.0, 0.0, 0.0, 1.0 );
+	return o;
+}
 `,
 		} );
 
