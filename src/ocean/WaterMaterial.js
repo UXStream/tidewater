@@ -393,7 +393,11 @@ ${ T ? `		let L0 = max( pos.y - terrainHeightAt( pos.xz ), 0.0 ) / tDown;
 			let rc = textureSampleLevel( waterRefrColor, smpLinearClamp, uvRc, 0.0 );
 			let rSize = vec2f( textureDimensions( waterRefrDepth ) );
 			let rd = textureLoad( waterRefrDepth, vec2i( min( uvRc * rSize, rSize - 1.0 ) ), 0 ).x;
-			if ( rc.a > 0.5 && rd > 0.0 ) {
+			// only what lies behind this surface point can be seen through it: submerged parts of
+			// objects in front of it (the hull of the boat you stand in, pier piles) would otherwise be
+			// pasted onto the sea far out, wherever the end point lands on them (or off screen next to
+			// them: the edge texel)
+			if ( rc.a > 0.5 && rd > 0.0 && surfViewZ + viewDepth( rd ) > 0.05 ) {
 				sceneCol = rc.rgb / rc.a;
 				uvF = uvRc;
 				dR = rd;
