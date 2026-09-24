@@ -258,15 +258,18 @@ fn hazeRay( uv: vec2f ) -> HazeRay {
 
 // sun visibility at world position P: shadow cascades, hills, clouds
 fn hazeVisibility( P: vec3f ) -> f32 {
+	// (each lookup only where the ones before left some light)
 	var v = sunShadowHard( P );
 #if HZ_TERRAIN
-	v *= terrainSunShadowAt( P );
+	if ( v > 0.0 ) { v *= terrainSunShadowAt( P ); }
 #endif
 #if HZ_CLOUDS
-	// the cloud shadow map is the ground's shadow along the key light: follow the light down
-	let L = frame.sunDir;
-	let g = P.xz - L.xz * ( max( P.y, 0.0 ) / max( L.y, 0.08 ) );
-	v *= cloudsShadow( g );
+	if ( v > 0.0 ) {
+		// the cloud shadow map is the ground's shadow along the key light: follow the light down
+		let L = frame.sunDir;
+		let g = P.xz - L.xz * ( max( P.y, 0.0 ) / max( L.y, 0.08 ) );
+		v *= cloudsShadow( g );
+	}
 #endif
 	return v;
 }

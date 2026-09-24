@@ -275,10 +275,15 @@ const TERRAIN_SURFACE = /* wgsl */`
 		// texture stretched vertically on the two vertical projection planes
 		let sw4 = pow( abs( N0.xz ), vec2f( 4.0 ) );
 		let swN = sw4 / ( sw4.x + sw4.y + 1e-5 );
-		let stA = terDetail( vec2f( p.z / 9.3, h / 37.0 ) );
-		let stB = terDetail( vec2f( p.x / 9.3 + 0.5, h / 37.0 + 0.3 ) );
-		let streak = stA.w * swN.x + stB.w * swN.y;
-		let scar = stA.y * swN.x + stB.y * swN.y;
+		// (everything they shape is weighted by the slope and vanishes at 0.28 or less: explicit
+		// gradients in the branch, the same as the implicit ones of the full-screen quad)
+		var streak = 0.5; var scar = 0.5;
+		if ( slope > 0.28 ) {
+			let stA = textureSampleGrad( terrainDetailTex, smpAniso4Repeat, vec2f( p.z / 9.3, h / 37.0 ), vec2f( dpx.z / 9.3, dpx.y / 37.0 ), vec2f( dpy.z / 9.3, dpy.y / 37.0 ) );
+			let stB = textureSampleGrad( terrainDetailTex, smpAniso4Repeat, vec2f( p.x / 9.3 + 0.5, h / 37.0 + 0.3 ), vec2f( dpx.x / 9.3, dpx.y / 37.0 ), vec2f( dpy.x / 9.3, dpy.y / 37.0 ) );
+			streak = stA.w * swN.x + stB.w * swN.y;
+			scar = stA.y * swN.x + stB.y * swN.y;
+		}
 
 		// ---- rock: only evaluated where the rock mask or the slope allow it. Exposure follows the
 		// form: steep faces, convex spurs and ridges (high AO) go bare, gully floors (low AO,
@@ -287,13 +292,17 @@ const TERRAIN_SURFACE = /* wgsl */`
 		let gully = sp.z * smoothstep( -0.5, 0.5, h );
 		var rockAlbedo = vec3f( 0.2 ); var rockRough = 0.8; var rockHd = 0.0;
 		var rockW = 0.0; var screeW = 0.0;
-		if ( nr.z > 0.06 || slope > 0.3 ) {
+		let cliffK = smoothstep( 0.28, 0.55, slope );
+		let convex = smoothstep( 0.5, 0.85, nr.w );
+		// rv below, without the rock's own relief term, which adds at most 0.1925 (R.height <= 1): where
+		// even that can't reach the scree band (0.28), rock and scree weigh 0 and the rock isn't shaded
+		let rvBound = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + convex * 0.14 - gully * 0.4
+			+ ( dM.w - 0.5 ) * 0.34 + ( dN.w - 0.5 ) * 0.22 + ( streak - 0.5 ) * 1.0 * cliffK + 0.2;
+		if ( ( nr.z > 0.06 || slope > 0.3 ) && rvBound > 0.28 ) {
 
 			var g: RockGrad;
 			g.dpdx = dpx; g.dpdy = dpy; g.fwY = fwY; g.useGrad = true;
 			let R = terrainRockSurface( p, N0, h, mcr, 0.5, 1.0, g );
-			let cliffK = smoothstep( 0.28, 0.55, slope );
-			let convex = smoothstep( 0.5, 0.85, nr.w );
 			let rv = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + convex * 0.14 - gully * 0.4
 				+ ( R.height - 0.45 ) * 0.35 + ( dM.w - 0.5 ) * 0.34 + ( dN.w - 0.5 ) * 0.22
 				+ ( streak - 0.5 ) * 1.0 * cliffK;

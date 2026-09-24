@@ -69,7 +69,8 @@ export const ContactShadows = {
 	module: null,
 };
 
-export function installContactShadows( { depthTexture, skip = [] } ) {
+// depthTexture: last frame's opaque depth, a depth texture or (depthIsColor) a half float copy
+export function installContactShadows( { depthTexture, depthIsColor = false, skip = [] } ) {
 
 	ContactShadows.depthTexture = depthTexture;
 	for ( const o of skip ) if ( o ) ContactShadows.skipRoots.add( o );
@@ -84,7 +85,7 @@ export function installContactShadows( { depthTexture, skip = [] } ) {
 				let q = q0 + qd * u;
 				let iw = 1.0 / q.w;
 				let uv = q.xy * iw * vec2f( 0.5, -0.5 ) + 0.5;
-				let d = textureLoad( contactDepth, vec2i( min( clamp( uv, vec2f( 0.0 ), vec2f( 1.0 ) ) * texSize, texSize - 1.0 ) ), 0 );
+				let d = textureLoad( contactDepth, vec2i( min( clamp( uv, vec2f( 0.0 ), vec2f( 1.0 ) ) * texSize, texSize - 1.0 ) ), 0 )${ depthIsColor ? '.x' : '' };
 				let k2 = frame.near * iw * iw;
 				let diff = d - q.z * iw; // > 0: the depth buffer is in front of the ray
 				let thick = bias + 0.06 + u * len * 0.3;

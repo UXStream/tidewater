@@ -231,7 +231,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.sceneRenderer.onBeforeWater = () => this.refraction.render( G.seaLevel.value );
 		if ( this.sky.background ) this.sceneRenderer.background = this.sky.background;
 		// screen-space contact shadows for the sun from last frame's opaque depth (foliage only casts)
-		installContactShadows( { depthTexture: this.sceneRenderer.opaqueCopy.depthTexture, skip: [ this.vegetation && this.vegetation.group, this.boat.group ] } );
+		// (the half float copy: fp16 reversed-Z keeps well inside the march's depth bias)
+		installContactShadows( { depthTexture: this.sceneRenderer.opaqueDepthHalf.texture, depthIsColor: true, skip: [ this.vegetation && this.vegetation.group, this.boat.group ] } );
 		// lanterns, lamp posts, path lights, lit windows, the boat's cabin / navigation lights and the
 		// flashlight (L): nearest few packed into one small uniform array each frame
 		this.localLights = new LocalLights();
