@@ -231,6 +231,15 @@ export class AppUI {
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
 		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => app.setRenderScale( v ) } );
+		const dpr = Math.min( 2, window.devicePixelRatio || 1 );
+		if ( dpr > 1 ) {
+
+			// the canvas is sized in CSS pixels (the browser stretches it on a high-DPI screen)
+			s.screenRes = app.engine.renderScale;
+			quality.addSelect( { label: 'Screen resolution', object: s, key: 'screenRes', tooltip: 'Output resolution. Standard: CSS pixels, stretched by the browser on a Retina / high-DPI screen (every pixel shows as a block). Full: the screen\'s own pixels, about 4x the pixels to post-process; set Render scale to 50% to keep the scene cost the same (the TAA then upscales).', options: [ { label: 'Standard', value: 1 }, { label: `Full (${ dpr }x)`, value: dpr } ], onChange: ( v ) => { app.engine.setRenderScale( Number( v ) ); } } );
+
+		}
+
 		s.aa = app.post.aaMode;
 		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'TAA: temporal anti-aliasing and upscaling (also resolves the dithered fades and soft shadow noise). SMAA / FXAA: spatial filters, sharper in motion, no upscaling.', options: [ { label: 'None', value: 'none' }, { label: 'TAA', value: 'taa' }, { label: 'SMAA', value: 'smaa' }, { label: 'FXAA', value: 'fxaa' } ], onChange: ( v ) => { app.post.aaMode = v; } } );
 		quality.addToggle( { label: 'Shadows', object: s, key: 'shadows', onChange: ( v ) => { app.shadows.enabled = v; } } );
