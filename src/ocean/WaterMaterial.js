@@ -218,7 +218,6 @@ export class WaterMaterial extends Material {
 	let vHeight = in.vs.vWaveH;
 	// footprint of this pixel on the surface (m) — for filtering / roughness (uniform control flow)
 	let footprint = max( length( fwidth( lagXZ ) ), 1e-4 );
-	let sceneDepthC = _waterSceneDepthAt( screenUV );
 
 #if WATER_HULL
 	// No sea inside a hull: the surface behind the nearest face of the hull volume is water the hull
@@ -326,8 +325,10 @@ ${ SH ? '	let folded = surf.jacobian < 0.1 || normalize( in.vs.vShoreN ).y < 0.3
 		let Rup = max( Rraw.y, 0.004 ) + sigmaUnres * 1.3 * ( 1.0 - max( Rraw.y, 0.0 ) );
 		let R = normalize( vec3f( Rraw.x, Rup, Rraw.z ) );
 		// reflections pointing below the horizon hit other waves: fade toward a dark sea color
-		let skyRefl = skyReflectionRadiance( R );
 		let horizonOcc = max( smoothstep( -0.12, 0.08, Rraw.y ), smoothstep( 0.25, 0.06, thickness ) );
+		// (unused where both its weights are 0: horizonOcc here, the rim at the swash front below)
+		var skyRefl = vec3f( 0.0 );
+		if ( horizonOcc > 0.0 || frontD < 0.1 ) { skyRefl = skyReflectionRadiance( R ); }
 		var reflCol = mix( frame.horizonColor * 0.35, skyRefl, horizonOcc );
 
 		// objects (pier, boat, hills, village) reflected from the screen; only rays close to the
@@ -335,9 +336,12 @@ ${ SH ? '	let folded = surf.jacobian < 0.1 || normalize( in.vs.vShoreN ).y < 0.3
 		// (looking down, F is tiny: the reflection can't be seen, skip the march)
 		if ( Rraw.y < 0.45 && F > 0.05 && mat.ssr > 0.5 ) {
 			let Rv = normalize( ( frame.view * vec4f( Rraw, 0.0 ) ).xyz );
-			let r = _waterSSR( posV, Rv );
-			reflCol = mix( reflCol, r.rgb, r.a );
-			ssrW = r.a;
+			// (rays toward the camera get no weight: see facing in _waterSSR)
+			if ( Rv.z < 0.5 ) {
+				let r = _waterSSR( posV, Rv, pos.y, Rraw.y );
+				reflCol = mix( reflCol, r.rgb, r.a );
+				ssrW = r.a;
+			}
 		}
 ${ REFL ? `
 		// planar reflection of scene objects (alpha = coverage)
@@ -388,7 +392,7 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		let uvR = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
 		let onScreen = all( uvR > vec2f( 0.0 ) ) && all( uvR < vec2f( 1.0 ) );
 		var uvF = screenUV;
-		var dR = sceneDepthC;
+		var dR = 0.0;
 		var sceneCol = vec3f( 0.0 );
 		var found = false;
 #if WATER_REFRACTION
@@ -420,7 +424,7 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 			let dO = _waterSceneDepthAt( uvR );
 			let valid = onScreen && surfViewZ + viewDepth( dO ) > 0.05;
 			uvF = select( screenUV, uvR, valid );
-			dR = select( sceneDepthC, dO, valid );
+			dR = select( _waterSceneDepthAt( screenUV ), dO, valid );
 			sceneCol = textureSampleLevel( waterSceneColor, smpLinearClamp, uvF, 0.0 ).rgb;
 		}
 		// (a branch: select() would evaluate the sky for every pixel)
@@ -494,9 +498,12 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 		let edgeAA = smoothstep( 0.0, max( fwidth( thickness ) * 1.5, 0.004 ), thickness );
 		// contact shadow: the sand just ahead of the advancing edge is darkened (the bead's
 		// shadow and the wetting front), fading within ~15 cm
-		let contact = smoothstep( -0.16, -0.005, frontD ) * ( 1.0 - edgeAA );
-		let sandC = textureSampleLevel( waterSceneColor, smpLinearClamp, screenUV, 0.0 ).rgb * ( 1.0 - 0.3 * contact );
-		outCol = mix( sandC, shaded, edgeAA );
+		outCol = shaded;
+		if ( edgeAA < 1.0 ) {
+			let contact = smoothstep( -0.16, -0.005, frontD ) * ( 1.0 - edgeAA );
+			let sandC = textureSampleLevel( waterSceneColor, smpLinearClamp, screenUV, 0.0 ).rgb * ( 1.0 - 0.3 * contact );
+			outCol = mix( sandC, shaded, edgeAA );
+		}
 
 	} else {
 
@@ -528,6 +535,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 			+ frame.skyIrradiance * PI * ( sigS * ( 1.0 / ( 4.0 * PI ) ) + albedoMS * sigT * INV_PI ) / kA;
 
 		// objects above the water seen through Snell's window (from the viewport)
+		let sceneDepthC = _waterSceneDepthAt( screenUV );
 		let sceneZ = - viewDepth( sceneDepthC );
 		let hasObj = posV.z - sceneZ > 0.0 && sceneZ > - frame.far * 0.9;
 		let objCol = textureSampleLevel( waterSceneColor, smpLinearClamp, screenUV, 0.0 ).rgb;
@@ -557,6 +565,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 	} else if ( dbg == 6 ) {
 		res = vec3f( dbgPath * 0.02, 0.0, 0.0 );
 	} else if ( dbg == 9 ) {
+		let sceneDepthC = _waterSceneDepthAt( screenUV );
 		let dz = - viewDepth( sceneDepthC );
 		res = vec3f( sceneDepthC * 100.0, - dz * 0.02, - posV.z * 0.02 );
 	} else if ( dbg == 8 ) {
@@ -616,7 +625,9 @@ fn _waterProject( p: vec3f ) -> vec2f {
 // March the reflected ray through the opaque depth copy (view space, geometric steps, then a
 // short bisection). Returns ( color, weight ): weight fades at screen edges, for rays heading
 // back toward the camera and at the end of the search range.
-fn _waterSSR( posV: vec3f, Rv: vec3f ) -> vec4f {
+// y0, ry: world height of the start and the ray's rise per metre. A hit beyond 260 m, or below the
+// water on a descending ray, is weighted 0, so the march stops once the last miss is there.
+fn _waterSSR( posV: vec3f, Rv: vec3f, y0: f32, ry: f32 ) -> vec4f {
 	var hit = false;
 	// steps grow with the distance: far away the first ones would all land in the same pixel
 	let stepScale = max( - posV.z / 60.0, 1.0 );
@@ -625,6 +636,7 @@ fn _waterSSR( posV: vec3f, Rv: vec3f ) -> vec4f {
 	var prevT = 0.0;
 	for ( var i = 0; i < 11; i++ ) {
 		prevT = t;
+		if ( prevT >= 260.0 || ( ry <= 0.0 && y0 + ry * prevT < frame.seaLevel - 0.2 ) ) { break; }
 		t += dt;
 		dt *= 1.7;
 		let p = posV + Rv * t;

@@ -106,6 +106,8 @@ ${ mode === 'normal' ? `	{
 		let sx = u * lam; // rest position along the wave direction (m, seaward)
 		let t = frame.time;
 		let mW = floor( ph.s + 0.5 );
+		// (the lumps only exist on the roller: amp is 0 elsewhere)
+		if ( roller != 0.0 ) {
 		let lumpy = sat( perlin2( vec2f( along * 0.045, mW * 3.7 ) ) * 1.2 + 0.55 );
 		let amp = roller * mix( 0.25, 0.7, lumpy );
 		let q1 = vec2f( along * 0.28, sx * 0.7 - t * 0.8 );
@@ -122,6 +124,9 @@ ${ mode === 'normal' ? `	{
 		let dShore = - dSx; // d/d(shoreward) = - d/dsx
 		let g = ( vec2f( - dir.y, dir.x ) * dAlong + dir * dShore ) * amp * n.y;
 		nShore = normalize( vec3f( n.x - g.x, max( n.y, 0.04 ), n.z - g.y ) );
+		} else {
+			nShore = normalize( vec3f( n.x, max( n.y, 0.04 ), n.z ) );
+		}
 	}` : '' }
 
 	// ---- swash: run-up of the most recent wave on the sand
@@ -154,7 +159,8 @@ ${ mode === 'normal' ? `	{
 	var o: ShoreSample;
 	// the churn of a bore is uneven along the crest: dense in some stretches, torn into patches and
 	// lace in others (different for every wave, drifting slowly along it)
-	let wwPatch = smoothstep( -0.5, 0.45, perlin2( vec2f( along * 0.06 + frame.time * 0.05, m * 2.9 + 0.4 ) ) );
+	var wwPatch = 0.0;
+	if ( s0.z * env != 0.0 ) { wwPatch = smoothstep( -0.5, 0.45, perlin2( vec2f( along * 0.06 + frame.time * 0.05, m * 2.9 + 0.4 ) ) ); }
 	o.disp = disp; o.nShore = nShore; o.env = env; o.foam = s0.z * env * mix( 0.3, 1.0, wwPatch ); o.breaking = s0.w; o.u = u; o.dir = dir;
 	o.exposure = exposure; o.swashLevel = swashLevel; o.swashCovered = select( 0.0, 1.0, covered ); o.thick = thick;
 	o.swashFoam = swashFoam; o.runup = swr.Rt; o.inland = swr.inland; o.dRdt = dRdt; o.tau = swr.tau;

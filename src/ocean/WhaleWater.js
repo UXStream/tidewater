@@ -25,6 +25,8 @@ fn whaleWater( xz: vec2f ) -> vec2f {
 	for ( var i = 0; i < ${ N }; i++ ) {
 		let e = whaleMarks.marks[ i ];
 		let d = length( xz - e.xy ) / e.z;
+		// (outside a mark, or an unused one, core or the amounts are 0)
+		if ( d >= 1.0 || e.w == 0.0 ) { continue; }
 		let core = 1.0 - smoothstep( 0.2, 1.0, d );
 		// churned water breaks up into lumps and streaks with dark water between them, denser
 		// toward the middle

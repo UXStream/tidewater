@@ -769,7 +769,11 @@ fn wakeNearCoord( xz: vec2f ) -> vec2f {
 }
 fn wakeInTemplate( tc: vec2f ) -> bool { return tc.x > 0.0 && tc.y > 0.0 && tc.x < ${ f( TW - 1 ) } && tc.y < ${ f( TH - 1 ) }; }
 
+// (outside the simulated window, or asleep, both fades are 0: nothing to read)
+fn wakeOff( xz: vec2f ) -> bool { return wakeParams.amount <= 0.0 || wakeEdgeDist( xz ) <= 4.0; }
+
 fn wakeSample( xz: vec2f ) -> vec4f {
+	if ( wakeOff( xz ) ) { return vec4f( 0.0 ); }
 	var s = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0.0 ) * vec4f( vec3f( wakeFade( xz ) ), wakeFadeLong( xz ) );
 	// the forced depression under the hull is covered by it: keep its edge out of the normals
 	let tc = wakeNearCoord( xz );
@@ -785,6 +789,7 @@ fn wakeSample( xz: vec2f ) -> vec4f {
 // falls (soft, irregular), so it breaks into clouds and streaks instead of a uniform ribbon
 fn wakeAeration( xz: vec2f ) -> f32 {
 	var out = 0.0;
+	if ( wakeOff( xz ) ) { return out; }
 	let tc = xz / WAKE_CELL - 0.5;
 	let i = vec2i( floor( tc ) );
 	let fr = fract( tc );
@@ -800,6 +805,7 @@ fn wakeAeration( xz: vec2f ) -> f32 {
 }
 
 fn wakeHeight( xz: vec2f ) -> f32 {
+	if ( wakeOff( xz ) ) { return 0.0; }
 	var h = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0.0 ).x;
 	let tc = wakeNearCoord( xz );
 	if ( wakeInTemplate( tc ) ) {
