@@ -1,6 +1,7 @@
 import { commonModule } from './wgsl/common.js';
 import { surfaceModule, lightingModule, hookModules, shadowModule } from './wgsl/lighting.js';
 import { collectModules } from '../gpu/Shader.js';
+import { GPU } from '../gpu/GPU.js';
 
 // Builds the WGSL of a mesh pipeline: vertex fetch + material vertex hook + transform, fragment
 // surface hook + lighting + outputs. See Material.js for the snippet contract.
@@ -11,7 +12,9 @@ import { collectModules } from '../gpu/Shader.js';
 //   'color' — a single color target (cube faces, hull mask, reflections)
 // pass.late: the water / transparent pass (velocity is blended premultiplied there)
 // pass.defines: extra defines, e.g. REFRACTION_CLIP + REFRACTION_CLIP_MARGIN (m): fragments higher than
-// sea level + margin are discarded (the water's refraction source, ocean/RefractionPass.js)
+// sea level + margin are dropped (the water's refraction source, ocean/RefractionPass.js). With the
+// 'clip-distances' feature the vertex stage clips there (nothing above is rasterized, and the pass
+// keeps early depth / hidden surface removal); otherwise the fragment discards.
 
 const STD_ATTRS = {
 	position: 'vec3f',
@@ -51,6 +54,7 @@ export function buildMeshShader( material, layout, pass ) {
 	defs.INSTANCED = has.has( 'instanceMatrix0' ) ? 1 : 0;
 	defs.INSTANCE_COLOR = has.has( 'instanceColor' ) ? 1 : 0;
 	Object.assign( defs, pass.defines || {} );
+	defs.CLIP_DISTANCES = defs.REFRACTION_CLIP && GPU.features.has( 'clip-distances' ) ? 1 : 0;
 
 	// ---- vertex input
 	let vin = 'struct VertexIn {\n';
@@ -85,6 +89,14 @@ export function buildMeshShader( material, layout, pass ) {
 	}
 
 	vsout += '};\n';
+	// the vertex output with hardware clip distances (a fragment input can't carry them)
+	if ( defs.CLIP_DISTANCES ) {
+
+		const fields = [ ...vsout.matchAll( /\s(\w+): [^,]+,\n/g ) ].map( ( m ) => m[ 1 ] );
+		vsout += vsout.replace( 'struct VSOut {', 'struct VSOutClip {' ).replace( /};\n$/, '\t@builtin( clip_distances ) clipDistances: array<f32, 1>,\n};\n' );
+		vsout += `fn vsClip( o: VSOut, d: f32 ) -> VSOutClip {\n\tvar c: VSOutClip;\n${ fields.map( ( f ) => `\tc.${ f } = o.${ f };\n` ).join( '' ) }\tc.clipDistances[ 0 ] = d;\n\treturn c;\n}\n`;
+
+	}
 
 	let fetch = '';
 	for ( const k in STD_ATTRS ) {
@@ -148,7 +160,11 @@ fn materialOutput( in: FragInput, s: Surface, r: ptr<function, FragResult> ) {
 ${ material.output }
 }
 
+#if CLIP_DISTANCES
+@vertex fn vs( i: VertexIn ) -> VSOutClip {
+#else
 @vertex fn vs( i: VertexIn ) -> VSOut {
+#endif
 	var v: VertexData;
 ${ fetch }#if !HAS_POSITION
 	v.position = vec3f( 0.0 );
@@ -194,7 +210,11 @@ ${ fetch }#if !HAS_POSITION
 	o.curClip = frame.viewProjNoJitter * vec4f( wp, 1.0 );
 	o.prevClip = frame.prevViewProjNoJitter * vec4f( pwp, 1.0 );
 #endif
+#if CLIP_DISTANCES
+	return vsClip( o, frame.seaLevel + REFRACTION_CLIP_MARGIN - wp.y );
+#else
 	return o;
+#endif
 }
 
 #if PASS_MAIN && !PASS_LATE && LIT && !IS_WATER && !ALPHA_TEST && !STUDIO_LIGHTING
@@ -277,8 +297,10 @@ struct FragOut {
 @fragment fn fs( vs: VSOut, @builtin( front_facing ) front: bool ) -> FragOut {
 	let in = fragInput( vs, front );
 #if REFRACTION_CLIP
+#if !CLIP_DISTANCES
 	// the water's refraction source only holds what is under the water (pass.defines)
 	if ( in.P.y > frame.seaLevel + REFRACTION_CLIP_MARGIN ) { discard; }
+#endif
 #endif
 #if PASS_MAIN && !PASS_LATE && LIT && !IS_WATER && !ALPHA_TEST && !STUDIO_LIGHTING
 	// hidden under the water (see submergedHidden): an ambient colour, keeping depth and motion

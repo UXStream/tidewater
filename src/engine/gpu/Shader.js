@@ -580,6 +580,7 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	const structs = [ ...new Set( [ ...g0.structs(), ...set.structs() ] ) ];
 	let src = '';
 	if ( GPU.features.has( 'shader-f16' ) && defines.F16 ) src += 'enable f16;\n';
+	if ( defines.CLIP_DISTANCES ) src += 'enable clip_distances;\n';
 	// as three.js' WGSL builder: derivatives inside data-dependent branches are allowed (the ported
 	// materials rely on it; results there are only used where the quad agrees)
 	if ( ! /diagnostic\s*\(\s*off\s*,\s*derivative_uniformity/.test( header ) ) src += 'diagnostic( off, derivative_uniformity );\n';
