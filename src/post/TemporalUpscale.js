@@ -57,6 +57,8 @@ function halton( index, base ) {
 
 export class TemporalUpscale {
 
+	static DEBUG_VIEWS = [ 'Off', 'Locks (green: holding, blue: new)', 'Luma instability (red)', 'Clamped (red) / kept (green)', 'New frame weight', 'Motion (px / frame)', 'Resampling blur (blue)' ];
+
 	constructor( beauty, depthTexture, velocityTexture, camera, waterMaskTexture = null, exposure = null ) {
 
 		this.beauty = beauty; // Texture or getter
@@ -75,7 +77,29 @@ export class TemporalUpscale {
 			hasWaterMask: [ 'f32', waterMaskTexture ? 1 : 0 ],
 			jitterPhases: [ 'f32', 8 ],
 			reset: [ 'f32', 1 ],
+			debugView: [ 'f32', 0 ],
+			// tuning (see settings)
+			boxStill: [ 'f32', 3 ],
+			boxMotion: [ 'f32', 1 ],
+			maxAccumulation: [ 'f32', 1 ],
+			motionAccumulation: [ 'f32', 10 ],
+			blurComp: [ 'f32', 0.5 ],
+			locks: [ 'f32', 1 ],
+			instability: [ 'f32', 1 ],
+			lockThreshold: [ 'f32', 1.05 ],
 		}, { label: 'taau' } );
+		// tuning uniforms (.value), for the UI:
+		//  boxStill / boxMotion: clamp box half size in standard deviations, still (FSR2: 1 at native) /
+		//    at 20 px per frame and above
+		//  maxAccumulation: history length (FSR2 1: ~13 frames); motionAccumulation: its cap in motion,
+		//    in frames' weights (FSR2 10)
+		//  blurComp: accumulation cap by the history's resampling blur (0 = FSR2)
+		//  locks / instability: FSR2's thin-feature locks and luma instability (1 on, 0 off)
+		//  lockThreshold: luma ratio under which a neighbour counts as similar to the centre (FSR2 1.05)
+		this.settings = this.uniforms.fields;
+		// jitter phases (0: FSR2's 8 x (output / input)^2); debug view (TemporalUpscale.DEBUG_VIEWS index)
+		this.jitterPhaseOverride = 0;
+		this.debugView = 0;
 		const U = this.uniforms.fields;
 		this._jitterOffset = U.jitterOffset;
 		this._jitterIndex = 0;
@@ -100,6 +124,13 @@ export class TemporalUpscale {
 	get texture() {
 
 		return this.history[ this._cur ].textures[ 0 ];
+
+	}
+
+	// what the post chain shows: the resolved image, or the debug view
+	get output() {
+
+		return this.debugView > 0 && this._debugTarget ? this._debugTarget.texture : this.texture;
 
 	}
 
@@ -130,7 +161,7 @@ export class TemporalUpscale {
 		// FSR2 ffxFsr2GetJitterPhaseCount / ffxFsr2GetJitterOffset
 		const b = this._beautyTexture();
 		const ratio = b && b.width ? this._outW / b.width : 1;
-		const phases = Math.max( 1, Math.ceil( 8 * ratio * ratio ) );
+		const phases = this.jitterPhaseOverride || Math.max( 1, Math.ceil( 8 * ratio * ratio ) );
 		this.uniforms.fields.jitterPhases.value = phases;
 		const i = this._jitterIndex % phases;
 		const jx = halton( i + 1, 2 ) - 0.5, jy = halton( i + 1, 3 ) - 0.5;
@@ -235,7 +266,7 @@ fn taauPreviousDepth( uv: vec2f ) -> f32 {
 
 fn taauInside( uv: vec2f ) -> bool { return all( uv >= vec2f( 0.0 ) ) && all( uv <= vec2f( 1.0 ) ); }
 
-struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @location( 2 ) lumaHistory: vec4f };
+struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @location( 2 ) lumaHistory: vec4f, DEBUG_FIELD };
 @fragment fn fs( in: FSIn ) -> TaauOut {
 	let uv = in.uv;
 	let inSize = vec2f( textureDimensions( taauBeauty ) );
@@ -313,7 +344,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 			if ( i == 4 ) { continue; }
 			let l = lumas[ i ];
 			let diff = max( l, nucleus ) / min( l, nucleus );
-			if ( diff > 0.0 && diff < 1.05 ) { mask |= 1u << u32( i ); } else { dMin = min( dMin, l ); dMax = max( dMax, l ); }
+			if ( diff > 0.0 && diff < taau.lockThreshold ) { mask |= 1u << u32( i ); } else { dMin = min( dMin, l ); dMax = max( dMax, l ); }
 		}
 		let isRidge = nucleus > dMax || nucleus < dMin;
 		let q0 = ( 1u << 0u ) | ( 1u << 1u ) | ( 1u << 3u ) | ( 1u << 4u );
@@ -340,7 +371,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	thisFrameReactive = max( thisFrameReactive, sat( ( luminanceDiff - 0.1 ) * 10.0 ) );
 	lockStatus.x *= 1.0 - thisFrameReactive;
 	lockStatus.x *= select( 0.0, 1.0, depthClip < 0.1 );
-	let lockContribution = sat( sat( sat( lockStatus.x - 1.0 ) * 4.0 ) * sat( taauMinDivMax( lockStatus.y, shadingLuma ) ) );
+	let lockContribution = sat( sat( sat( lockStatus.x - 1.0 ) * 4.0 ) * sat( taauMinDivMax( lockStatus.y, shadingLuma ) ) ) * taau.locks;
 
 	// ---- this frame at the output pixel: Lanczos-2 over the 3x3 taps, and the rectification box
 	// (FSR2 ComputeUpsampledColorAndWeight)
@@ -404,13 +435,13 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 			lumaInstability = select( 0.0, 1.0, dmin != abs( d0 ) ) * boxSizeFactor;
 			lumaInstability = select( 0.0, 1.0, lumaInstability > 1.0 / 255.0 );
 		}
-		lumaInstability *= select( 0.0, 1.0, lumaHist.w != 0.0 );
+		lumaInstability *= select( 0.0, 1.0, lumaHist.w != 0.0 ) * taau.instability;
 		lumaHist = vec4f( curLuma, lumaHist.xyz );
 	}
 
 	// ---- accumulation weight (FSR2 ComputeBaseAccumulationWeight)
-	var accumulation = select( 0.0, 1.0, isExistingSample ) * ( 1.0 - thisFrameReactive ) * ( 1.0 - depthClip );
-	accumulation = min( accumulation, mix( accumulation, upsampledWeight * 10.0, max( select( 0.0, 1.0, inMotionLastFrame ), sat( hrVelocity * 10.0 ) ) ) );
+	var accumulation = taau.maxAccumulation * select( 0.0, 1.0, isExistingSample ) * ( 1.0 - thisFrameReactive ) * ( 1.0 - depthClip );
+	accumulation = min( accumulation, mix( accumulation, upsampledWeight * taau.motionAccumulation, max( select( 0.0, 1.0, inMotionLastFrame ), sat( hrVelocity * 10.0 ) ) ) );
 	accumulation = min( accumulation, mix( accumulation, upsampledWeight, sat( hrVelocity / 20.0 ) ) );
 
 	// Resampling blur (not in FSR2): even the Catmull-Rom loses fine detail when it samples between
@@ -421,11 +452,12 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	let hf = fract( historyUV * outSize - 0.5 );
 	let hv = hf * ( 1.0 - hf );
 	let blurAcc = blurPrev + hv.x + hv.y;
-	let blurAlpha = min( blurAcc * 0.5, select( 1.0, 0.15, isWater ) );
+	let blurAlpha = min( blurAcc * taau.blurComp, select( 1.0, 0.15, isWater ) );
 	accumulation = min( accumulation, upsampledWeight * ( 1.0 - blurAlpha ) / max( blurAlpha, 1e-3 ) );
 
 	var outColor: vec3f;
 	var alphaOut = 1.0;
+	var dbgClamp = vec2f( 0.0 );
 	if ( isNewSample ) {
 		outColor = taauFromYCoCg( upsampled );
 	} else {
@@ -433,15 +465,16 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 		// pixels' history; a clamp drops the accumulated weight
 		// FSR2 widens the box while still by the upscale factor (1 at native: a 1 sigma box that clamped
 		// the sub-pixel plank gaps out of the history, frame after frame); at least 3 sigma here
-		let scaleInfluence = max( 3.0, min( 20.0, pow( 1.0 / abs( downscale.x * downscale.y ), 3.0 ) ) );
+		let scaleInfluence = max( taau.boxStill, min( 20.0, pow( 1.0 / abs( downscale.x * downscale.y ), 3.0 ) ) );
 		let boxScaleT = max( depthClip, sat( hrVelocity / 20.0 ) );
-		let boxScale = mix( scaleInfluence, 1.0, boxScaleT );
+		let boxScale = mix( scaleInfluence, taau.boxMotion, boxScaleT );
 		let boxMin = max( aabbMin, boxCenter - boxVec * boxScale );
 		let boxMax = min( aabbMax, boxCenter + boxVec * boxScale );
 		if ( any( boxMin > historyColor ) || any( historyColor > boxMax ) ) {
 			let clamped = clamp( historyColor, boxMin, boxMax );
 			// (not on the water: its glints move on their own and would leave trails)
 			let contribution = select( sat( max( lumaInstability, lockContribution ) ), 0.0, isWater );
+			dbgClamp = vec2f( length( clamped - historyColor ) / max( boxVec.x * 2.0, 0.02 ), contribution );
 			historyColor = mix( clamped, historyColor, contribution );
 			accumulation = mix( min( accumulation, 0.1 ), accumulation, contribution );
 		}
@@ -472,13 +505,36 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	out.color = vec4f( max( outColor, vec3f( 0.0 ) ) / exposure, 1.0 );
 	out.lock = vec4f( lockStatus, newReactive, select( blurAcc * ( 1.0 - alphaOut ), 0.0, isNewSample ) );
 	out.lumaHistory = lumaHist;
+DEBUG_OUTPUT
 	return out;
 }
 `;
 
 		const formats = [ 'rgba16float', 'rgba16float', 'rgba8unorm' ];
 		// resolve[ i ] reads history i and writes history 1 - i
-		this._resolve = [ 0, 1 ].map( ( src ) => new FullscreenPass( { label: 'TAAU', bindings: bindings( src ), colorFormats: formats, code } ) );
+		const plain = code.replace( ', DEBUG_FIELD', '' ).replace( 'DEBUG_OUTPUT\n', '' );
+		this._resolve = [ 0, 1 ].map( ( src ) => new FullscreenPass( { label: 'TAAU', bindings: bindings( src ), colorFormats: formats, code: plain } ) );
+		// the debug view: the same resolve with a fourth target, the view (built when first shown)
+		this._buildDebug = () => {
+
+			const dbg = code.replace( 'DEBUG_FIELD', '@location( 3 ) debug: vec4f' ).replace( 'DEBUG_OUTPUT', /* wgsl */`
+	// grey image, the chosen quantity over it (colours are divided by the exposure: the final pass
+	// multiplies them back)
+	let gray = vec3f( luminance( taauTonemap( outColor * exposure ) ) * 0.35 );
+	let view = u32( taau.debugView );
+	var v = gray;
+	if ( view == 1u ) { v = gray + vec3f( 0.0, lockContribution, select( 0.0, 1.0, newLock ) ); }
+	else if ( view == 2u ) { v = gray + vec3f( lumaInstability, 0.0, 0.0 ); }
+	else if ( view == 3u ) { v = gray + vec3f( sat( dbgClamp.x ) * ( 1.0 - dbgClamp.y ), sat( dbgClamp.x ) * dbgClamp.y, 0.0 ); }
+	else if ( view == 4u ) { v = vec3f( sat( alphaOut * 3.0 ) ); }
+	else if ( view == 5u ) { v = gray + vec3f( sat( hrVelocity / 4.0 ), sat( hrVelocity / 16.0 ), 0.0 ); }
+	else if ( view == 6u ) { v = gray + vec3f( 0.0, 0.0, sat( blurAlpha * 2.0 ) ); }
+	out.debug = vec4f( v / max( exposure, 1e-4 ), 1.0 );` );
+			const f = [ ...formats, 'rgba16float' ];
+			this._resolveDebug = [ 0, 1 ].map( ( src ) => new FullscreenPass( { label: 'TAAU debug', bindings: bindings( src ), colorFormats: f, code: dbg } ) );
+			this._debugTarget = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'taauDebug' } );
+
+		};
 
 	}
 
@@ -505,7 +561,19 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 		this._needsRestart = false;
 
 		const dst = 1 - this._cur;
-		this._resolve[ this._cur ].render( { colorViews: this.history[ dst ].textures, clear: CLR } );
+		if ( this.debugView > 0 ) {
+
+			if ( ! this._resolveDebug ) this._buildDebug();
+			const h = this.history[ dst ];
+			this._debugTarget.setSize( h.textures[ 0 ].width, h.textures[ 0 ].height );
+			U.debugView.value = this.debugView;
+			this._resolveDebug[ this._cur ].render( { colorViews: [ ...h.textures, this._debugTarget.texture ], clear: CLR } );
+
+		} else {
+
+			this._resolve[ this._cur ].render( { colorViews: this.history[ dst ].textures, clear: CLR } );
+
+		}
 		this._cur = dst;
 
 		// Copy the current scene depth into the previous-depth texture (same size as the source)

@@ -237,6 +237,27 @@ export class AppUI {
 		s.ssr = true;
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );
 
+		// TAA tuning (TemporalUpscale settings; the defaults are FSR2's except the two marked)
+		const taau = app.post.taau;
+		const T = taau.settings;
+		const taa = perf.addFolder( 'TAA', { icon: 'layers', open: false } );
+		for ( const k of [ 'boxStill', 'boxMotion', 'maxAccumulation', 'motionAccumulation', 'blurComp', 'lockThreshold' ] ) s[ k ] = T[ k ].value;
+		s.locks = T.locks.value > 0;
+		s.instability = T.instability.value > 0;
+		s.phases = taau.jitterPhaseOverride;
+		s.debug = taau.debugView;
+		const taaSlider = ( key, label, min, max, step, tooltip, format ) => taa.addSlider( { label, object: s, key, min, max, step, tooltip, format, onChange: ( v ) => { T[ key ].value = v; } } );
+		taa.addSelect( { label: 'Debug view', object: s, key: 'debug', tooltip: 'Shows what the TAA does per pixel over a grey image.', options: taau.constructor.DEBUG_VIEWS.map( ( label, value ) => ( { label, value } ) ), onChange: ( v ) => { taau.debugView = Number( v ); } } );
+		taaSlider( 'boxStill', 'Clamp width still', 0.5, 8, 0.1, 'How far (in standard deviations of the 3x3 neighbourhood) the history may differ from the new frame before it is clamped, with a still camera. Wider: steadier sub-pixel detail, more ghosting. FSR2: 1 at native resolution (default here 3).', ( v ) => `${ v.toFixed( 1 ) }σ` );
+		taaSlider( 'boxMotion', 'Clamp width moving', 0.25, 4, 0.05, 'The same at 20 px per frame of motion and above (it narrows with speed). FSR2: 1.', ( v ) => `${ v.toFixed( 2 ) }σ` );
+		taaSlider( 'maxAccumulation', 'History length', 0.25, 4, 0.05, 'How many frames the history averages (1 ≈ 13 frames). Longer: smoother, softer, slower to react. FSR2: 1.', ( v ) => `${ Math.round( 1 + v * 12 ) } frames` );
+		taaSlider( 'motionAccumulation', 'History length moving', 1, 40, 1, 'Cap on the history length once anything moves (in frames). FSR2: 10.', ( v ) => `${ v } frames` );
+		taaSlider( 'blurComp', 'Blur compensation', 0, 2, 0.05, 'In motion the history is resampled between pixels every frame and softens; this gives blurred history more of the sharp new frame. 0 = FSR2 (default here 0.5).' );
+		taaSlider( 'lockThreshold', 'Thin feature threshold', 1.0, 1.5, 0.01, 'Brightness ratio under which a neighbour counts as similar when looking for one-pixel-wide features to lock. Higher: more pixels count as thin features. FSR2: 1.05.' );
+		taa.addToggle( { label: 'Thin feature locks', object: s, key: 'locks', tooltip: 'FSR2: one-pixel-wide ridges (rails, wires, plank gaps) keep their history instead of being clamped.', onChange: ( v ) => { T.locks.value = v ? 1 : 0; } } );
+		taa.addToggle( { label: 'Luma instability', object: s, key: 'instability', tooltip: 'FSR2: a pixel whose brightness oscillates over the last 4 frames keeps its history instead of being clamped.', onChange: ( v ) => { T.instability.value = v ? 1 : 0; } } );
+		taa.addSelect( { label: 'Jitter phases', object: s, key: 'phases', tooltip: 'Length of the sub-pixel jitter sequence. Auto: FSR2 (8 at native resolution).', options: [ { label: 'Auto', value: 0 }, { label: '4', value: 4 }, { label: '8', value: 8 }, { label: '16', value: 16 }, { label: '32', value: 32 } ], onChange: ( v ) => { taau.jitterPhaseOverride = Number( v ); } } );
+
 		this._t = 0;
 
 	}

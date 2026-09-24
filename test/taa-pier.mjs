@@ -43,9 +43,10 @@ const taau = new TemporalUpscale( () => rt.texture, rt.depthTexture, rt.textures
 taau.setSize( W, H );
 // diagnostics: NODEPTH=1 (no depth-based history rejection), NOJIT=1
 // (no jitter: with a moving camera the output should match the current frame, any blur is the history's)
+if ( process.env.DBGV ) taau.debugView = Number( process.env.DBGV ); // debug view (TemporalUpscale.DEBUG_VIEWS)
 if ( process.env.NODEPTH ) taau.uniforms.fields.depthThreshold.value = 1e9;
 const ldr = new RenderTarget( W, H, { colors: [ 'rgba8unorm' ], label: 'ldr' } );
-const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( MODE === 'taa' ? taau.texture : rt.texture ) } },
+const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( MODE === 'taa' ? taau.output : rt.texture ) } },
 	code: `fn fragment( in: FSIn ) -> vec4f {
 		let c = textureSampleLevel( hdr, smpLinearClamp, in.uv, 0.0 ).rgb;
 		let a = c * 0.6; let t = ( a * ( 2.51 * a + 0.03 ) ) / ( a * ( 2.43 * a + 0.59 ) + 0.14 );

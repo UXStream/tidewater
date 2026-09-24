@@ -191,7 +191,7 @@ ${ taps }
 
 		// ---- camera + object motion blur on the resolved image (gathered in the final pass, before
 		// bloom and the screen-fixed lens effects)
-		this.motionBlur = new MotionBlur( { velocityTexture: sceneRenderer.velocityTexture, depthTexture: sceneRT.depthTexture, color: () => this.taau.texture } );
+		this.motionBlur = new MotionBlur( { velocityTexture: sceneRenderer.velocityTexture, depthTexture: sceneRT.depthTexture, color: () => this.taau.output } );
 
 		// ---- sun flare in the lens (screen-fixed, after the temporal resolve; its visibility is measured
 		// from the scene depth by a compute pass the app runs after the scene)
@@ -462,7 +462,7 @@ ${ reduce }
 			modules,
 			bindings: {
 				post: { uniform: this.uniforms },
-				postResolved: { texture: () => this.taau.texture },
+				postResolved: { texture: () => this.taau.output },
 				postBloom: { texture: () => this.bloomTex.texture },
 				postHalf: { texture: () => this.half.texture },
 				postExposure: { storage: this.exposure, access: 'read' },
