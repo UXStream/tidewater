@@ -102,11 +102,13 @@ export class PostFX {
 
 		// ---- ambient occlusion on the opaque depth (normals reconstructed from depth)
 		// GTAO reads a half-resolution depth copy (one texel per AO pixel): its horizon taps spread
-		// over a large screen radius, and the full-res reads were mostly cache misses
-		this.aoDepth = new RenderTarget( 1, 1, { colors: [ 'r32float' ], label: 'aoDepth' } );
+		// over a large screen radius, and the full-res reads were mostly cache misses. Half float: the
+		// taps are bandwidth bound, and reversed-Z depth keeps its relative precision in fp16 (~5 mm at
+		// 10 m) where the AO radius matters
+		this.aoDepth = new RenderTarget( 1, 1, { colors: [ 'r16float' ], label: 'aoDepth' } );
 		this._aoDepthPass = new FullscreenPass( {
 			label: 'AO depth',
-			colorFormats: [ 'r32float' ],
+			colorFormats: [ 'r16float' ],
 			bindings: { aoFullDepth: { texture: () => this.opaqueDepth } },
 			code: /* wgsl */`
 fn fragment( in: FSIn ) -> vec4f {
