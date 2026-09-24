@@ -31,6 +31,8 @@ fn waterQueryCameraState() -> vec4f { return vec4f( stubParams.waterH, 0.0, 0.0,
 fn waterQueryHeightAtXZ( xz: vec2f ) -> f32 { return stubParams.waterH + 0.02 * sin( xz.x * 3.0 ); }
 ` } ) };
 const caustics = { module: new ShaderModule( { name: 'caustics', code: /* wgsl */`
+fn causticsDetailK( xz: vec2f ) -> f32 { return 1.0; }
+fn causticsSampleShaft( P: vec3f, depth: f32, level: f32, detailK: f32 ) -> vec3f { return vec3f( 1.0 ); }
 fn causticsSampleLevel( p: vec3f, z: f32, k: f32 ) -> vec3f { let a = sin( p.x * 2.1 + p.z * 0.7 ) * sin( p.z * 2.3 - p.x * 0.4 ); return vec3f( 1.0 + 1.5 * a * a * a * a - 0.3 ); }
 ` } ) };
 let atmosphere = { module: new ShaderModule( { name: 'atmosphere', code: /* wgsl */`
@@ -44,6 +46,7 @@ let sky = { module: new ShaderModule( { name: 'sky', code: 'fn skyMoonSky( dir: 
 let clouds = { module: new ShaderModule( { name: 'clouds', code: /* wgsl */`
 fn cloudsShadow( xz: vec2f ) -> f32 { return 1.0; }
 fn cloudsSampleView( dir: vec3f ) -> vec4f { return vec4f( 0.0, 0.0, 0.0, 1.0 ); }
+fn cloudsSunTransmittance( T: f32 ) -> f32 { return T * smoothstep( 0.004, 0.04, T ); }
 fn cloudsSample( dir: vec3f ) -> vec4f { return vec4f( 0.0, 0.0, 0.0, 1.0 ); }
 ` } ), sampleView: true };
 

@@ -21,7 +21,9 @@ import { SceneLighting } from './SceneLighting.js';
 const GROUP = 4;
 const GROUPS = 2;
 const STEPS = GROUP * GROUPS;
-const MAX_DIST = 32;
+// (farther out a rail or rope is a few pixels thick and the few jittered steps hit it on some frames
+// and miss it on others: the shadow flickered; the shadow maps hold that detail at range)
+const MAX_DIST = 16;
 const NEAR_DIST = 12; // the second group of steps only runs nearer than this
 
 const params = new UniformBlock( 'ContactShadowParams', { strength: [ 'f32', 1 ] }, { label: 'contactShadows' } );

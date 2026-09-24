@@ -93,6 +93,7 @@ export class AirHaze {
 			sunUV: [ 'vec2f', new Vector2( 0.5, 0.5 ) ],
 			ssFade: [ 'f32', 0 ], // light in view, low in the sky, camera in air
 			hasMedium: [ 'f32', 0 ],
+			histValid: [ 'f32', 0 ], // the shaft history holds a previous frame
 		}, { label: 'haze' } );
 		const U = this.uniforms.fields;
 		this.density = U.density;
@@ -103,8 +104,12 @@ export class AirHaze {
 		this.ssFade = U.ssFade;
 		this.mediumTexture = null; // lens medium (set by the post chain): water pixels are skipped
 
-		// half resolution march (x = lit in-scatter depth, y = unshadowed, z = view distance)
+		// half resolution march (x = lit share of the in-scatter, y = marched / exact in-scatter, z = view
+		// distance), and its temporal accumulation (ping-pong; the composite reads the latest)
 		this.low = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'hazeShafts' } );
+		this.hist = [ 0, 1 ].map( ( i ) => new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'hazeShaftsHistory' + i } ) );
+		this._hc = 0;
+		this._histValid = false;
 		// screen-space god rays (GPU Gems 3 ch. 13 / UE4 light shafts) on top of the volumetric term:
 		// sky visibility around the key light (sun disc + aureole, times the cloud transmittance) at
 		// quarter resolution, blurred toward the light's screen position in three passes of 8 taps
@@ -130,6 +135,8 @@ export class AirHaze {
 
 		const s = this.scale;
 		this.low.setSize( Math.round( w * 0.5 * s ), Math.round( h * 0.5 * s ) );
+		for ( const r of this.hist ) r.setSize( Math.round( w * 0.5 * s ), Math.round( h * 0.5 * s ) );
+		this._histValid = false;
 		for ( const r of this.ssTargets ) r.setSize( Math.round( w * 0.25 * s ), Math.round( h * 0.25 * s ) );
 
 	}
@@ -167,6 +174,13 @@ export class AirHaze {
 		if ( ! this._passes ) this._build();
 		const p = this._passes;
 		p.march.render( { colorViews: [ this.low.texture ], clear: CLR } );
+		// accumulate: 16 jittered steps per pixel are noisy, and the final temporal resolve clamps the
+		// noisy history away, so the shafts flickered; here they settle over ~10 frames
+		const on = this.enabled.value > 0.5 && this.shafts.value > 0;
+		this.uniforms.fields.histValid.value = this._histValid && on ? 1 : 0;
+		p.temporal[ this._hc ].render( { colorViews: [ this.hist[ 1 - this._hc ].texture ], clear: CLR } );
+		this._hc = 1 - this._hc;
+		this._histValid = on;
 		// the god ray passes only matter while the light is in view (the composite skips them otherwise)
 		if ( this.ssFade.value > 0.001 ) {
 
@@ -316,7 +330,7 @@ fn hazeVisibility( P: vec3f ) -> f32 {
 			name: 'haze-composite',
 			deps: [ this.module ],
 			bindings: {
-				hazeLow: { texture: () => this.low.texture },
+				hazeLow: { texture: () => this.hist[ this._hc ].texture },
 				hazeSS: { texture: () => this.ssShafts.texture },
 				hazeMedium: { texture: () => this.mediumTexture || this.low.texture },
 			},
@@ -545,7 +559,47 @@ ${ taps }
 
 		} );
 
-		this._passes = { march, mask, blur };
+		// temporal accumulation of the march: last frame's result at this pixel's world point (its view
+		// distance must match: no history across disocclusions), clamped to this frame's 3x3
+		// neighbourhood, blended with the new march
+		const temporal = [ 0, 1 ].map( ( src ) => new FullscreenPass( {
+			label: 'haze shafts temporal',
+			modules: [ mod ],
+			defines,
+			bindings: { hzCur: { texture: () => this.low.texture }, hzPrev: { texture: () => this.hist[ src ].texture } },
+			colorFormats: [ 'rgba16float' ],
+			code: /* wgsl */`
+fn fragment( in: FSIn ) -> vec4f {
+	let size = vec2i( textureDimensions( hzCur ) );
+	let p = vec2i( in.pos.xy );
+	let cur = textureLoad( hzCur, p, 0 );
+	var out = cur;
+	if ( hazeParams.histValid > 0.5 ) {
+		var lo = cur.xy; var hi = cur.xy;
+		for ( var k = 0; k < 9; k++ ) {
+			let s = textureLoad( hzCur, clamp( p + vec2i( k % 3 - 1, k / 3 - 1 ), vec2i( 0 ), size - 1 ), 0 ).xy;
+			lo = min( lo, s ); hi = max( hi, s );
+		}
+		let R = hazeRay( in.uv );
+		let world = underwaterParams.camPos + R.dir * cur.z;
+		let clip = frame.prevViewProjNoJitter * vec4f( world, 1.0 );
+		if ( clip.w > 1e-4 ) {
+			let puv = clip.xy / clip.w * vec2f( 0.5, -0.5 ) + 0.5;
+			if ( all( puv >= vec2f( 0.0 ) ) && all( puv <= vec2f( 1.0 ) ) ) {
+				let prev = textureSampleLevel( hzPrev, smpLinearClamp, puv, 0.0 );
+				let expect = length( world - frame.prevCameraPos );
+				if ( abs( prev.z - expect ) < expect * 0.05 + 0.3 ) {
+					out = vec4f( mix( clamp( prev.xy, lo, hi ), cur.xy, 0.12 ), cur.z, 1.0 );
+				}
+			}
+		}
+	}
+	return out;
+}
+`,
+		} ) );
+
+		this._passes = { march, mask, blur, temporal };
 
 	}
 
