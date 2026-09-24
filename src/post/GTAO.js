@@ -98,13 +98,15 @@ export class GTAO {
 const GTAO_DIRECTIONS: i32 = ${ DIRECTIONS };
 const GTAO_STEPS: i32 = ${ STEPS };
 
-fn gtaoSampleDepth( uv: vec2f ) -> f32 {
+// (a colour depth copy may mark texels negative: under the water, no AO wanted; see PostFX)
+fn gtaoSampleDepthRaw( uv: vec2f ) -> f32 {
 	let s = vec2i( textureDimensions( gtaoDepth ) );
 	return textureLoad( gtaoDepth, clamp( vec2i( floor( uv * vec2f( s ) ) ), vec2i( 0 ), s - 1 ), 0 )${ this.depthIsColor ? '.x' : '' };
 }
+fn gtaoSampleDepth( uv: vec2f ) -> f32 { return abs( gtaoSampleDepthRaw( uv ) ); }
 fn gtaoLoad( p: vec2i ) -> f32 {
 	let s = vec2i( textureDimensions( gtaoDepth ) );
-	return textureLoad( gtaoDepth, clamp( p, vec2i( 0 ), s - 1 ), 0 )${ this.depthIsColor ? '.x' : '' };
+	return abs( textureLoad( gtaoDepth, clamp( p, vec2i( 0 ), s - 1 ), 0 )${ this.depthIsColor ? '.x' : '' } );
 }
 // three's getViewPosition (WebGPU coordinate system)
 fn gtaoViewPosition( uv: vec2f, depth: f32 ) -> vec3f {
@@ -145,13 +147,13 @@ fn fragment( in: FSIn ) -> vec4f {
 	// Sidestep the nearest-rounding during depth access for the unjittered center pixel to avoid banding
 	var depth: f32;
 	if ( gtao.resolutionScaleU < 1.0 ) {
-		let g = textureGather( ${ this.depthIsColor ? '0, ' : '' }gtaoDepth, smpNearestClamp, uvNode );
+		let g = abs( textureGather( ${ this.depthIsColor ? '0, ' : '' }gtaoDepth, smpNearestClamp, uvNode ) );
 		depth = min( min( g.x, g.y ), min( g.z, g.w ) );
 	} else {
 		depth = gtaoSampleDepth( uvNode );
 	}
 	// nothing there (sky: the depth is reversed-Z, 0 at infinity): unoccluded, and never shown
-	if ( depth <= 0.0 ) { return vec4f( 1.0 ); }
+	if ( depth <= 0.0 || gtaoSampleDepthRaw( uvNode ) < 0.0 ) { return vec4f( 1.0 ); }
 	let viewPosition = gtaoViewPosition( uvNode, depth );
 	let viewNormal = gtaoNormalFromDepth( uvNode );
 	let radius = gtao.radius;

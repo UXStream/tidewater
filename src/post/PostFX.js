@@ -109,12 +109,16 @@ export class PostFX {
 		this._aoDepthPass = new FullscreenPass( {
 			label: 'AO depth',
 			colorFormats: [ 'r16float' ],
-			bindings: { aoFullDepth: { texture: () => this.opaqueDepth } },
+			bindings: { aoFullDepth: { texture: () => this.opaqueDepth }, aoFinalDepth: { texture: () => this.finalDepth } },
 			code: /* wgsl */`
+// negative where the water covers the opaque surface: its AO is never shown (the beauty pass skips
+// covered pixels), so GTAO leaves those texels alone; everything else reads the magnitude
 fn fragment( in: FSIn ) -> vec4f {
 	let s = vec2i( textureDimensions( aoFullDepth ) );
 	let p = min( vec2i( in.pos.xy ) * 2, s - 1 );
-	return vec4f( textureLoad( aoFullDepth, p, 0 ), 0.0, 0.0, 1.0 );
+	let d = textureLoad( aoFullDepth, p, 0 );
+	let covered = textureLoad( aoFinalDepth, p, 0 ) > d + 1e-7;
+	return vec4f( select( d, - d, covered ), 0.0, 0.0, 1.0 );
 }
 `,
 		} );
@@ -152,7 +156,7 @@ fn fragment( in: FSIn ) -> vec4f {
 				code: /* wgsl */`
 fn postDepthOpaque( uv: vec2f ) -> f32 {
 	let s = vec2i( textureDimensions( postAODepth ) );
-	return textureLoad( postAODepth, clamp( vec2i( floor( uv * vec2f( s ) ) ), vec2i( 0 ), s - 1 ), 0 ).r;
+	return abs( textureLoad( postAODepth, clamp( vec2i( floor( uv * vec2f( s ) ) ), vec2i( 0 ), s - 1 ), 0 ).r );
 }
 fn fragment( in: FSIn ) -> vec4f {
 	let size = vec2f( textureDimensions( aoSrc ) );
@@ -250,6 +254,8 @@ fn postColorAO( uv: vec2f ) -> vec3f {
 	// reversed depth: sky = 0; water in front of the opaque surface has a larger depth value
 	let isSky = dO < 1e-7;
 	let covered = dF > dO + 1e-7;
+	// no AO there (k = 0 below): skip the upsample
+	if ( isSky || covered ) { return c; }
 	// depth-aware upsample of the half-res AO: the 4 nearest AO texels, weighted by how close
 	// their depth is to this pixel's (no dark halos bleeding across depth edges)
 	// (the AO texels' depths: the half resolution copy the AO was computed from)
@@ -261,7 +267,7 @@ fn postColorAO( uv: vec2f ) -> vec3f {
 	for ( var k = 0; k < 4; k++ ) {
 		let o = vec2i( k & 1, k >> 1u );
 		let pT = clamp( vec2i( i0 ) + o, vec2i( 0 ), aoSizeI - 1 );
-		let dT = textureLoad( postAODepth, pT, 0 ).r;
+		let dT = abs( textureLoad( postAODepth, pT, 0 ).r );
 		let wBil = select( 1.0 - fr.x, fr.x, o.x == 1 ) * select( 1.0 - fr.y, fr.y, o.y == 1 );
 		// reversed-Z depth ~ near / z, so the relative depth difference ~ |dT - dO| / dO
 		let rel = abs( dT - dO ) / max( dO, 1e-7 );
