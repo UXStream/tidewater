@@ -37,14 +37,8 @@ H.before.push( ( cam ) => { terrain.update( cam ); if ( rocks ) rocks.update( ca
 if ( process.argv.includes( '--hooks' ) ) {
 
 	const { installGroundBounce } = await import( '../src/materials/GroundBounce.js' );
-	const { installContactShadows } = await import( '../src/materials/ContactShadows.js' );
 	const { LocalLights } = await import( '../src/materials/LocalLights.js' );
-	const { Texture } = await import( '../src/engine/gpu/Texture.js' );
 	installGroundBounce( { terrain: gpu } );
-	// last frame's opaque depth (SceneRenderer.opaqueCopy.depthTexture in the app)
-	const prevDepth = new Texture( { label: 'prevDepth', width: H.W, height: H.H, format: 'depth32float', usage: [ 'sample', 'copyDst', 'render' ] } );
-	installContactShadows( { depthTexture: prevDepth } );
-	H.after = () => H.GPU.getEncoder().copyTextureToTexture( { texture: H.rt.depthTexture.getGPU() }, { texture: prevDepth.getGPU() }, [ H.W, H.H ] );
 	if ( process.argv.includes( '--night' ) ) {
 
 		const ll = new LocalLights();

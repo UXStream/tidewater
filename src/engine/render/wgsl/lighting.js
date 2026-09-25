@@ -9,7 +9,6 @@ import { Matrix4, Vector4 } from '../../math/index.js';
 //   - scene hooks installed by systems (each defaults to a neutral stub):
 //       fn hookDirectModulation( P: vec3f, N: vec3f ) -> vec3f   caustics, water column, clouds, hill shadow
 //       fn hookAmbientModulation( P: vec3f, N: vec3f ) -> vec3f  underwater tint / attenuation
-//       fn hookContactShadow( P: vec3f, N: vec3f ) -> f32        screen-space contact shadow of the sun
 //       fn hookShadowPosition( P: vec3f, N: vec3f, pixel: vec2f ) -> vec3f   where the sun shadow map is
 //                                                  sampled for P (underwater: the light's entry point)
 //       fn hookBounce( P: vec3f, N: vec3f ) -> vec3f             ground bounce irradiance (already / PI)
@@ -43,7 +42,6 @@ export const SceneLighting = {
 const HOOK_DEFAULTS = {
 	directModulation: 'fn hookDirectModulation( P: vec3f, N: vec3f ) -> vec3f { return vec3f( 1.0 ); }',
 	ambientModulation: 'fn hookAmbientModulation( P: vec3f, N: vec3f ) -> vec3f { return vec3f( 1.0 ); }',
-	contactShadow: 'fn hookContactShadow( P: vec3f, N: vec3f ) -> f32 { return 1.0; }',
 	shadowPosition: 'fn hookShadowPosition( P: vec3f, N: vec3f, pixel: vec2f ) -> vec3f { return P; }',
 	bounce: 'fn hookBounce( P: vec3f, N: vec3f ) -> vec3f { return vec3f( 0.0 ); }',
 	localLights: 'fn hookLocalLights( s: Surface, P: vec3f, N: vec3f, V: vec3f, acc: ptr<function, LightAccum> ) {}',
@@ -288,10 +286,8 @@ fn defaultSurface( N: vec3f ) -> Surface {
 	return s;
 }
 
-// view-depth change per pixel of the surface being lit, taken at the top of shadeSurface (every
-// lane of the quad is live there; the hooks run in branches, where derivatives are undefined)
-var<private> lightDepthSlope: f32 = 0.0;
-// screen derivatives of the lit position, taken at the same place (the sun hooks run in a branch)
+// screen derivatives of the lit position, taken at the top of shadeSurface (every lane of the quad
+// is live there; the sun hooks run in a branch, where derivatives are undefined)
 var<private> lightDPdx: vec3f = vec3f( 0.0 );
 var<private> lightDPdy: vec3f = vec3f( 0.0 );
 
@@ -391,13 +387,8 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 	acc.directDiffuse = vec3f( 0.0 ); acc.directSpecular = vec3f( 0.0 );
 	acc.indirectDiffuse = vec3f( 0.0 ); acc.indirectSpecular = vec3f( 0.0 );
 
-	{
-		let fwdV = -vec3f( frame.view[ 0 ][ 2 ], frame.view[ 1 ][ 2 ], frame.view[ 2 ][ 2 ] );
-		let wP = dot( P - frame.cameraPos, fwdV );
-		lightDepthSlope = max( abs( dpdx( wP ) ), abs( dpdy( wP ) ) );
-		lightDPdx = dpdx( P );
-		lightDPdy = dpdy( P );
-	}
+	lightDPdx = dpdx( P );
+	lightDPdy = dpdy( P );
 
 	// ---- sun / moon
 	let L = frame.sunDir;
@@ -423,7 +414,6 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 			shadow = sunShadowHard( hookShadowPosition( P, geomN, pixel ) );
 #else
 			shadow = sunShadow( hookShadowPosition( P, geomN, pixel ), geomN, pixel );
-			if ( shadow > 0.0 ) { shadow *= hookContactShadow( P, N ); }
 #endif
 		}
 		lightColor *= shadow;

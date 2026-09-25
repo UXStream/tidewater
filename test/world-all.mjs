@@ -12,8 +12,6 @@ import { BoatModel } from '../src/world/BoatModel.js';
 import { computeShoreField } from '../src/world/ShoreField.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { installGroundBounce } from '../src/materials/GroundBounce.js';
-import { installContactShadows } from '../src/materials/ContactShadows.js';
-import { Texture } from '../src/engine/gpu/Texture.js';
 
 const out = process.argv[ 2 ] && ! process.argv[ 2 ].startsWith( '--' ) ? process.argv[ 2 ] : '/tmp';
 const H = await worldHarness( { sun: [ 0.5, 0.5, 0.45 ] } );
@@ -39,9 +37,6 @@ if ( ! process.argv.includes( '--no-debris' ) ) {
 }
 
 installGroundBounce( { terrain: gpu } );
-const prevDepth = new Texture( { label: 'prevDepth', width: H.W, height: H.H, format: 'depth32float', usage: [ 'sample', 'copyDst', 'render' ] } );
-installContactShadows( { depthTexture: prevDepth, skip: [ boat.group ] } );
-H.after = () => H.GPU.getEncoder().copyTextureToTexture( { texture: H.rt.depthTexture.getGPU() }, { texture: prevDepth.getGPU() }, [ H.W, H.H ] );
 H.before.push( ( cam ) => {
 
 	terrain.update( cam );

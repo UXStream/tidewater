@@ -2,7 +2,6 @@ import * as THREE from '../engine/index.js';
 import { UI } from './UI.js';
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
-import { ContactShadows } from '../materials/ContactShadows.js';
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
 const SEA = {
@@ -203,9 +202,7 @@ export class AppUI {
 		const P = app.post.params;
 		post.addSlider( { label: 'Ambient occlusion', object: s, key: 'ao', min: 0, max: 1.5, step: 0.01, onChange: ( v ) => { P.aoStrength.value = v; } } );
 		s.bounce = GroundBounce.strength.value;
-		s.contact = ContactShadows.strength.value;
 		post.addSlider( { label: 'Bounce light', object: s, key: 'bounce', min: 0, max: 2, step: 0.01, tooltip: 'Sunlight reflected off the ground (bright sand) onto undersides and shaded faces: pier, eaves, hulls, trunks. 0 = off.', onChange: ( v ) => { GroundBounce.strength.value = v; } } );
-		post.addSlider( { label: 'Contact shadows', object: s, key: 'contact', min: 0, max: 1, step: 0.01, tooltip: 'Screen-space sun shadows of small details the shadow maps miss (pebbles, shells, grass, rope). 0 = off.', onChange: ( v ) => { ContactShadows.strength.value = v; } } );
 		s.sharpen = P.sharpen.value;
 		post.addSlider( { label: 'Sharpen', object: s, key: 'sharpen', min: 0, max: 1, step: 0.01, tooltip: 'Contrast-adaptive sharpening after the temporal anti-aliasing.', onChange: ( v ) => { P.sharpen.value = v; } } );
 		if ( app.post.motionBlur ) {

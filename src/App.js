@@ -43,7 +43,6 @@ import { installUnderwaterLighting } from './ocean/UnderwaterLighting.js';
 import { RefractionPass } from './ocean/RefractionPass.js';
 import { installGroundBounce } from './materials/GroundBounce.js';
 import { LocalLights, addVillageLights, addBoatLights } from './materials/LocalLights.js';
-import { installContactShadows, ContactShadows } from './materials/ContactShadows.js';
 import { WaterQuery } from './ocean/WaterQuery.js';
 import { Breakers } from './ocean/Breakers.js';
 import { SurfFoam } from './ocean/SurfFoam.js';
@@ -230,9 +229,6 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.refraction = new RefractionPass( { meshRenderer: engine.meshRenderer, scene, camera, sceneRenderer: this.sceneRenderer, scale: 0.5 } );
 		this.sceneRenderer.onBeforeWater = () => this.refraction.render( G.seaLevel.value );
 		if ( this.sky.background ) this.sceneRenderer.background = this.sky.background;
-		// screen-space contact shadows for the sun from last frame's opaque depth (foliage only casts)
-		// (the half float copy: fp16 reversed-Z keeps well inside the march's depth bias)
-		installContactShadows( { depthTexture: this.sceneRenderer.opaqueDepthHalf.texture, depthIsColor: true, skip: [ this.vegetation && this.vegetation.group, this.boat.group ] } );
 		// lanterns, lamp posts, path lights, lit windows, the boat's cabin / navigation lights and the
 		// flashlight (L): nearest few packed into one small uniform array each frame
 		this.localLights = new LocalLights();
@@ -318,8 +314,6 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			village: this.village, colliders: this.colliders, vegetation: this.vegetation, boat: this.boatCtl, boatModel: this.boat,
 			query: this.query, spray: this.spray, csm: this.csm,
 		} );
-		// moving receivers: last frame's depth no longer lines up with them (see installContactShadows)
-		for ( const o of [ this.whale && this.whale.group, this.wildlife.birdBatch && this.wildlife.birdBatch.mesh, this.wildlife.critterBatch && this.wildlife.critterBatch.mesh ] ) if ( o ) ContactShadows.skipRoots.add( o );
 		this.freeCam = qs.has( 'fly' );
 
 		// ---------------------------------------------------------------- post
