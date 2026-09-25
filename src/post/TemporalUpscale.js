@@ -102,8 +102,9 @@ export class TemporalUpscale {
 		// jitter phases, the anti-aliasing sample count (0: FSR2's 8 x (output / input)^2; 16 here, the
 		// UI's default: the still history averages ~25 frames); debug view (DEBUG_VIEWS index)
 		this.jitterPhaseOverride = 16;
-		// jitter amplitude (1: the full pixel, FSR2; less: steadier sub-pixel detail, less anti-aliasing)
-		this.jitterScale = 1;
+		// jitter amplitude (1: the full pixel, FSR2; less: steadier sub-pixel detail, less anti-aliasing;
+		// 0.5 here: the distant deck boards shimmered at the full pixel)
+		this.jitterScale = 0.5;
 		// jitter amplitude while the camera moves (times jitterScale): in motion the jitter's frame to
 		// frame change of sub-pixel detail (distant plank gaps hit on one frame, missed on the next) adds
 		// to the motion's own and flickers, while the motion already moves the samples over the pixels.
