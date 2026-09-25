@@ -99,9 +99,9 @@ export class TemporalUpscale {
 		//  staticKeep: still pixels keep their history unless the local luma changed (0 = FSR2)
 		//  lockThreshold: luma ratio under which a neighbour counts as similar to the centre (FSR2 1.05)
 		this.settings = this.uniforms.fields;
-		// jitter phases, the anti-aliasing sample count (0: FSR2's 8 x (output / input)^2; 16 here, the
-		// UI's default: the still history averages ~25 frames); debug view (DEBUG_VIEWS index)
-		this.jitterPhaseOverride = 16;
+		// jitter phases, the anti-aliasing sample count (0: FSR2's 8 x (output / input)^2; 4 here, the
+		// UI's default); debug view (DEBUG_VIEWS index)
+		this.jitterPhaseOverride = 4;
 		// jitter amplitude (1: the full pixel, FSR2; less: steadier sub-pixel detail, less anti-aliasing;
 		// 0.5 here: the distant deck boards shimmered at the full pixel)
 		this.jitterScale = 0.5;
