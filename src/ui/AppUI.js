@@ -228,48 +228,18 @@ export class AppUI {
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
 		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => app.setRenderScale( v ) } );
-		const dpr = Math.min( 2, window.devicePixelRatio || 1 );
-		if ( dpr > 1 ) {
+		// anti-aliasing: the TAA with 2..16 jitter positions averaged per pixel, or none
+		s.aa = app.post.aaMode === 'none' ? 0 : app.post.taau.jitterPhaseOverride;
+		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'Temporal anti-aliasing: each pixel averages this many sub-pixel sample positions over successive frames (it also smooths dithered fades and shadow noise). More samples cost nothing per frame but take a few more frames to settle.', options: [ { label: 'Off', value: 0 }, { label: '2x', value: 2 }, { label: '4x', value: 4 }, { label: '8x', value: 8 }, { label: '16x', value: 16 } ], onChange: ( v ) => {
 
-			// the canvas is sized in CSS pixels (the browser stretches it on a high-DPI screen)
-			s.screenRes = app.engine.renderScale;
-			quality.addSelect( { label: 'Screen resolution', object: s, key: 'screenRes', tooltip: 'Output resolution. Standard: CSS pixels, stretched by the browser on a Retina / high-DPI screen (every pixel shows as a block). Full: the screen\'s own pixels, about 4x the pixels to post-process; set Render scale to 50% to keep the scene cost the same (the TAA then upscales).', options: [ { label: 'Standard', value: 1 }, { label: `Full (${ dpr }x)`, value: dpr } ], onChange: ( v ) => { app.engine.setRenderScale( Number( v ) ); } } );
+			const n = Number( v );
+			app.post.aaMode = n > 0 ? 'taa' : 'none';
+			if ( n > 0 ) app.post.taau.jitterPhaseOverride = n;
 
-		}
-
-		s.aa = app.post.aaMode;
-		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'TAA: temporal anti-aliasing and upscaling (also resolves the dithered fades and soft shadow noise). SMAA + TAA: SMAA on every frame, then the TAA (steadier thin geometric edges, still smooths foliage). SMAA / FXAA: spatial filters, sharper in motion, no upscaling.', options: [ { label: 'None', value: 'none' }, { label: 'TAA', value: 'taa' }, { label: 'SMAA + TAA', value: 'smaataa' }, { label: 'SMAA', value: 'smaa' }, { label: 'FXAA', value: 'fxaa' } ], onChange: ( v ) => { app.post.aaMode = v; } } );
+		} } );
 		quality.addToggle( { label: 'Shadows', object: s, key: 'shadows', onChange: ( v ) => { app.shadows.enabled = v; } } );
 		s.ssr = true;
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );
-
-		// TAA tuning (TemporalUpscale settings; the defaults are FSR2's except the two marked)
-		const taau = app.post.taau;
-		const T = taau.settings;
-		const taa = perf.addFolder( 'TAA', { icon: 'layers', open: false } );
-		for ( const k of [ 'boxStill', 'boxMotion', 'maxAccumulation', 'motionAccumulation', 'blurComp', 'lockThreshold' ] ) s[ k ] = T[ k ].value;
-		s.locks = T.locks.value > 0;
-		s.instability = T.instability.value > 0;
-		s.phases = taau.jitterPhaseOverride;
-		s.debug = taau.debugView;
-		const taaSlider = ( key, label, min, max, step, tooltip, format ) => taa.addSlider( { label, object: s, key, min, max, step, tooltip, format, onChange: ( v ) => { T[ key ].value = v; } } );
-		taa.addInfo( { label: 'Jitter now', get: () => `${ ( taau.jitterNow ?? 0 ).toFixed( 2 ) } px (camera ${ taau._camMotion > 0.01 ? 'moving' : 'still' })` } );
-		taa.addSelect( { label: 'Debug view', object: s, key: 'debug', tooltip: 'Shows what the TAA does per pixel over a grey image.', options: taau.constructor.DEBUG_VIEWS.map( ( label, value ) => ( { label, value } ) ), onChange: ( v ) => { taau.debugView = Number( v ); } } );
-		taaSlider( 'boxStill', 'Clamp width still', 0.5, 8, 0.1, 'How far (in standard deviations of the 3x3 neighbourhood) the history may differ from the new frame before it is clamped, with a still camera. Wider: steadier sub-pixel detail, more ghosting. FSR2: 1 at native resolution (default here 3).', ( v ) => `${ v.toFixed( 1 ) }σ` );
-		taaSlider( 'boxMotion', 'Clamp width moving', 0.25, 4, 0.05, 'The same at 20 px per frame of motion and above (it narrows with speed). FSR2: 1.', ( v ) => `${ v.toFixed( 2 ) }σ` );
-		taaSlider( 'maxAccumulation', 'History length', 0.25, 4, 0.05, 'How many frames the history averages with a still camera (1 ≈ 13 frames). Longer: steadier, slower to react to lighting changes. FSR2: 1 (default here 2).', ( v ) => `${ Math.round( 1 + v * 12 ) } frames` );
-		taaSlider( 'motionAccumulation', 'History length moving', 1, 40, 1, 'Cap on the history length once anything moves (in frames). FSR2: 10.', ( v ) => `${ v } frames` );
-		taaSlider( 'blurComp', 'Blur compensation', 0, 2, 0.05, 'In motion the history is resampled between pixels every frame and softens; this gives blurred history more of the sharp new frame. 0 = FSR2 (default here 0.5).' );
-		taaSlider( 'lockThreshold', 'Thin feature threshold', 1.0, 1.5, 0.01, 'Brightness ratio under which a neighbour counts as similar when looking for one-pixel-wide features to lock. Higher: more pixels count as thin features. FSR2: 1.05.' );
-		s.staticKeep = T.staticKeep.value > 0;
-		taa.addToggle( { label: 'Keep still pixels', object: s, key: 'staticKeep', tooltip: 'With the camera still, pixels keep their history unless their local brightness really changed (not in FSR2). Stops thin distant detail flickering while standing still.', onChange: ( v ) => { T.staticKeep.value = v ? 1 : 0; } } );
-		taa.addToggle( { label: 'Thin feature locks', object: s, key: 'locks', tooltip: 'FSR2: one-pixel-wide ridges (rails, wires, plank gaps) keep their history instead of being clamped.', onChange: ( v ) => { T.locks.value = v ? 1 : 0; } } );
-		taa.addToggle( { label: 'Luma instability', object: s, key: 'instability', tooltip: 'FSR2: a pixel whose brightness oscillates over the last 4 frames keeps its history instead of being clamped.', onChange: ( v ) => { T.instability.value = v ? 1 : 0; } } );
-		s.jitterScale = taau.jitterScale;
-		taa.addSlider( { label: 'Jitter amount', object: s, key: 'jitterScale', min: 0, max: 1, step: 0.05, tooltip: 'Size of the per-frame sub-pixel camera offset the TAA averages over. 1: a full pixel (FSR2). Less: steadier thin detail, but edges get less anti-aliasing; 0 turns the jitter off.', onChange: ( v ) => { taau.jitterScale = v; } } );
-		s.jitterMoving = taau.jitterMoving;
-		taa.addSlider( { label: 'Jitter when moving', object: s, key: 'jitterMoving', min: 0, max: 1, step: 0.05, tooltip: 'Jitter amount (times the above) while the camera moves. Walking already moves the samples across the pixels; the jitter on top makes distant thin detail flicker. 1: always full.', onChange: ( v ) => { taau.jitterMoving = v; } } );
-		taa.addSelect( { label: 'Jitter phases', object: s, key: 'phases', tooltip: 'Length of the sub-pixel jitter sequence. Auto: FSR2 (8 at native resolution).', options: [ { label: 'Auto', value: 0 }, { label: '4', value: 4 }, { label: '8', value: 8 }, { label: '16', value: 16 }, { label: '32', value: 32 } ], onChange: ( v ) => { taau.jitterPhaseOverride = Number( v ); } } );
 
 		this._t = 0;
 
