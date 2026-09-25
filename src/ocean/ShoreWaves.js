@@ -477,6 +477,10 @@ fn shoreBreakDepth( xz: vec2f, dir: vec2f, u: f32, lam: f32, d: f32 ) -> f32 {
 
 // vec3( dir.x, dir.z, exposure ) from the direction texture (bilinear from 4 loads)
 fn shoreDirAt( xz: vec2f ) -> vec3f {
+#if WATER_TEXTURE_LIMITED
+	let d = terrainShoreSample( xz ).yz;
+	return vec3f( normalize( d + vec2f( 1e-8, 0.0 ) ), sat( length( d ) * 1.4 ) );
+#else
 	let res = f32( textureDimensions( shoreDirTex ).x );
 	let fp = ( xz - shoreP.dirMin ) / shoreP.dirSize * res - 0.5;
 	let fc = clamp( fp, vec2f( 0.0 ), vec2f( res - 1.001 ) );
@@ -487,6 +491,7 @@ fn shoreDirAt( xz: vec2f ) -> vec3f {
 	let c = textureLoad( shoreDirTex, i + vec2i( 0, 1 ), 0 );
 	let d = textureLoad( shoreDirTex, i + vec2i( 1, 1 ), 0 );
 	return mix( mix( a, b, t.x ), mix( c, d, t.x ), t.y ).xyz;
+#endif
 }
 
 // ------------------------------------------------------------ surf zone water

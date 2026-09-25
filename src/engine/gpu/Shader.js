@@ -322,7 +322,7 @@ export function getBindGroupLayout( entries, label ) {
 // A composed set of group-1 bindings: layout + a bind group rebuilt when a resource changes.
 export class BindingSet {
 
-	// stageOf: { name: 'vertex' | 'fragment' } for render bindings only one stage reads (keeps the
+	// stageOf: { name: 'vertex' | 'fragment' | 'unused' } for bindings only one stage reads (keeps the
 	// per-stage uniform buffer / texture counts down); demote: uniform blocks bound as read-only storage
 	constructor( specs, stage, label = 'bindings', stageOf = null, demote = null ) {
 
@@ -335,6 +335,7 @@ export class BindingSet {
 
 			const l = this.described[ i ].layout;
 			const st = stageOf[ this.names[ i ] ];
+			if ( st === 'unused' ) l.visibility = 0;
 			if ( st === 'fragment' && ( l.visibility & GPUShaderStage.FRAGMENT ) ) l.visibility = GPUShaderStage.FRAGMENT;
 			if ( st === 'vertex' && ( l.visibility & GPUShaderStage.VERTEX ) ) l.visibility = GPUShaderStage.VERTEX;
 
@@ -516,7 +517,7 @@ export function group0ForBlock( block, stage = 'render' ) {
 // Assemble a full WGSL source: structs, group 0/1 declarations, module code, main code.
 //   modules: ShaderModule[]; bindings: extra { name: spec } (material resources); code: main WGSL
 // returns { code, bindings: BindingSet (group 1), group0: BindingSet }
-export function composeShader( { modules = [], bindings = {}, code = '', defines = {}, stage = 'render', label = 'shader', header = '' } ) {
+export function composeShader( { modules = [], bindings = {}, code = '', defines = {}, stage = 'render', label = 'shader', header = '', entryPoint = 'main' } ) {
 
 	const mods = collectModules( modules );
 	const specs = {};
@@ -530,19 +531,27 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	for ( const k in bindings ) specs[ k ] = bindings[ k ];
 	let stageOf = null;
 	let demote = null;
+	const full = preprocess( header + '\n' + mods.map( ( m ) => m.code ).join( '\n' ) + '\n' + code, defines );
+	if ( stage === 'compute' ) {
+
+		const used = reachableIdentifiers( full, entryPoint );
+		stageOf = {};
+		for ( const k in specs ) if ( ! used.has( k ) ) stageOf[ k ] = 'unused';
+
+	}
 	if ( stage === 'render' && /@vertex\s+fn\s+vs\b/.test( code ) ) {
 
 		// bindings only one entry point can reach are declared for that stage only (per-stage limits:
 		// 12 uniform buffers, 16 sampled textures on some adapters)
-		let all = '';
-		for ( const m of mods ) all += m.code + '\n';
-		const full = preprocess( all + code, defines );
 		const usedV = reachableIdentifiers( full, 'vs' );
 		const usedF = /@fragment\s+fn\s+fs\b/.test( full ) ? reachableIdentifiers( full, 'fs' ) : null;
 		stageOf = {};
 		for ( const k in specs ) {
 
-			if ( ! usedV.has( k ) && ( ! usedF || usedF.has( k ) ) ) stageOf[ k ] = 'fragment';
+			// Keep declarations for unused module helpers, but expose their resources to no stage.
+			// Visibility zero is valid and consumes no per-stage binding slots.
+			if ( ! usedV.has( k ) && usedF && ! usedF.has( k ) ) stageOf[ k ] = 'unused';
+			else if ( ! usedV.has( k ) && ( ! usedF || usedF.has( k ) ) ) stageOf[ k ] = 'fragment';
 			else if ( usedF && ! usedF.has( k ) && usedV.has( k ) ) stageOf[ k ] = 'vertex';
 
 		}
@@ -597,6 +606,22 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 // Identifiers reachable from function `entry` through the call graph of the top-level functions.
 export function reachableIdentifiers( code, entry ) {
 
+	// Comments can contain function names and braces; neither belongs in the call graph.
+	let clean = '', depth = 0;
+	for ( let i = 0; i < code.length; i ++ ) {
+
+		const pair = code.slice( i, i + 2 );
+		if ( pair === '/*' ) { depth ++; i ++; clean += ' '; }
+		else if ( depth && pair === '*/' ) { depth --; i ++; }
+		else if ( ! depth && pair === '//' ) {
+
+			while ( i < code.length && code[ i ] !== '\n' ) i ++;
+			clean += '\n';
+
+		} else if ( ! depth || code[ i ] === '\n' ) clean += code[ i ];
+
+	}
+	code = clean;
 	const fns = new Map();
 	const re = /\bfn\s+([A-Za-z_]\w*)\s*\(/g;
 	let m;

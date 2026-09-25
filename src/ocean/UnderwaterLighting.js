@@ -122,28 +122,28 @@ ${ T ? '	h *= smoothstep( 0.0, 3.0, frame.seaLevel - terrainHeightAt( xz ) );' :
 
 	};
 	const origins = [ mapParams.fields.origin0, mapParams.fields.origin1 ];
-	const make = ( name ) => new Texture( { label: name, width: MAP_N, height: MAP_N, format: 'rgba16float', usage: [ 'sample', 'storage' ] } );
+	// Four layers share one sampled binding: waves and mean level for each map extent.
+	const maps = new Texture( { label: 'underwater maps', width: MAP_N, height: MAP_N, depth: MAP_EXTENTS.length * 2, dimension: '2d-array', format: 'rgba16float', usage: [ 'sample', 'storage' ] } );
 	const levels = MAP_EXTENTS.map( ( extent, l ) => {
 
 		const texel = extent / MAP_N;
-		const A = make( 'uwWaves' + l ), B = make( 'uwLevel' + l );
 		const kernel = new ComputeKernel( {
 			label: 'Underwater Light Map ' + l,
 			modules: [ helpers, ...( caustics && caustics.module ? [ caustics.module ] : [] ) ],
-			bindings: { uwMapParams: { uniform: mapParams }, uwOutA: { storageTexture: A, access: 'write' }, uwOutB: { storageTexture: B, access: 'write' } },
+			bindings: { uwMapParams: { uniform: mapParams }, uwOut: { storageTexture: maps, access: 'write' } },
 			workgroupSize: [ 8, 8, 1 ],
 			code: /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
 fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 	let xz = ( vec2f( gid.xy ) + 0.5 ) * ${ texel } + uwMapParams.origin${ l };
 	let lw = underwaterLongWaves( xz, ${ texel } );
-	textureStore( uwOutA, vec2u( gid.xy ), vec4f( lw.height - frame.seaLevel, lw.slope, sat( lw.foam ) ) );
+	textureStore( uwOut, vec2u( gid.xy ), ${ l * 2 }, vec4f( lw.height - frame.seaLevel, lw.slope, sat( lw.foam ) ) );
 	let dk = ${ caustics && caustics.module ? 'causticsDetailK( xz )' : '1.0' };
-	textureStore( uwOutB, vec2u( gid.xy ), vec4f( underwaterMeanLevel( xz ) - frame.seaLevel, dk, 0.0, 1.0 ) );
+	textureStore( uwOut, vec2u( gid.xy ), ${ l * 2 + 1 }, vec4f( underwaterMeanLevel( xz ) - frame.seaLevel, dk, 0.0, 1.0 ) );
 }
 `,
 		} );
-		return { extent, texel, A, B, kernel, origin: origins[ l ] };
+		return { extent, texel, kernel, origin: origins[ l ] };
 
 	} );
 
@@ -153,7 +153,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 		deps: [ commonModule ],
 		uniforms: mapParams,
 		uniformName: 'uwMapParams',
-		bindings: { uwWaves0: { texture: L0.A }, uwLevel0: { texture: L0.B }, uwWaves1: { texture: L1.A }, uwLevel1: { texture: L1.B } },
+		bindings: { uwMaps: { texture: maps } },
 		code: /* wgsl */`
 struct UwMapSample { height: f32, slope: vec2f, foam: f32, mean: f32, detailK: f32 };
 
@@ -180,12 +180,12 @@ fn _uwMapLookup( xz: vec2f, waves: bool ) -> UwMapSample {
 	let st1 = ( xz - uwMapParams.origin1 ) / ${ L1.texel };
 	if ( all( st0 > vec2f( 0.5 ) ) && all( st0 < vec2f( ${ MAP_N }.0 - 0.5 ) ) ) {
 		let uv = st0 / ${ MAP_N }.0;
-		if ( waves ) { a = textureSampleLevel( uwWaves0, smpLinearClamp, uv, 0.0 ); }
-		b = textureSampleLevel( uwLevel0, smpLinearClamp, uv, 0.0 );
+		if ( waves ) { a = textureSampleLevel( uwMaps, smpLinearClamp, uv, 0, 0.0 ); }
+		b = textureSampleLevel( uwMaps, smpLinearClamp, uv, 1, 0.0 );
 	} else if ( all( st1 > vec2f( 0.5 ) ) && all( st1 < vec2f( ${ MAP_N }.0 - 0.5 ) ) ) {
 		let uv = st1 / ${ MAP_N }.0;
-		if ( waves ) { a = textureSampleLevel( uwWaves1, smpLinearClamp, uv, 0.0 ); }
-		b = textureSampleLevel( uwLevel1, smpLinearClamp, uv, 0.0 );
+		if ( waves ) { a = textureSampleLevel( uwMaps, smpLinearClamp, uv, 2, 0.0 ); }
+		b = textureSampleLevel( uwMaps, smpLinearClamp, uv, 3, 0.0 );
 	}
 	return UwMapSample( frame.seaLevel + a.x, a.yz, a.w, frame.seaLevel + b.x, b.y );
 }
@@ -331,6 +331,6 @@ fn hookShadowPosition( P: vec3f, N: vec3f, pixel: vec2f ) -> vec3f {
 	SceneLighting.set( 'directModulation', direct );
 	SceneLighting.set( 'shadowPosition', shadowPos );
 	SceneLighting.set( 'ambientModulation', ambient );
-	return { helpers, direct, ambient, shadowPos, params, update, levels };
+	return { helpers, direct, ambient, shadowPos, params, update, levels, maps };
 
 }

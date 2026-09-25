@@ -348,10 +348,19 @@ ${ DT ? '	whitecaps = whitecaps * mix( 0.5, 1.5, det.gust ) + det.streak * 0.5;'
 	// foam pattern: an irregular bubbly mat thresholded by coverage, so foam grows, tears into
 	// lace and dissolves naturally
 	let fuv = lagXZ * waterSurface.foamScale;
+	// Reuse the surf lace for whitecaps on devices with sixteen sampled texture slots.
+#if WATER_TEXTURE_LIMITED
+	let p1 = ${ SF ? 'vec4f( 1.0 ) - textureSample( surfFoamLaceTex, smpAniso4Repeat, fuv )' : 'textureSample( waterFoamTex, smpAniso4Repeat, fuv )' };
+#else
 	let p1 = textureSample( waterFoamTex, smpAniso4Repeat, fuv );
+#endif
 	// second layer at another scale, rotated, to break repetition
 	let r2 = vec2f( fuv.x * 0.8 - fuv.y * 0.6, fuv.x * 0.6 + fuv.y * 0.8 );
+#if WATER_TEXTURE_LIMITED
+	let p2 = ${ SF ? 'vec4f( 1.0 ) - textureSample( surfFoamLaceTex, smpAniso4Repeat, r2 * 2.37 + vec2f( 0.31, 0.77 ) )' : 'textureSample( waterFoamTex, smpAniso4Repeat, r2 * 2.37 + vec2f( 0.31, 0.77 ) )' };
+#else
 	let p2 = textureSample( waterFoamTex, smpAniso4Repeat, r2 * 2.37 + vec2f( 0.31, 0.77 ) );
+#endif
 	let pattern = p1.x * 0.62 + p2.x * 0.38;
 	let thresh = 1.05 - coverage * 1.1;
 	let soft = 0.06 + footprint * 0.1;

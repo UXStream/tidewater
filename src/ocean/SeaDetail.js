@@ -45,7 +45,12 @@ struct SeaDetailSample { rough: f32, gust: f32, slick: f32, streak: f32 };
 
 // hardware bilinear, repeat-wrapped (the shared sampler: no binding of its own)
 fn seaDetailLoad( uv: vec2f ) -> vec4f {
+#if WATER_TEXTURE_LIMITED
+	// Keep moving gusts, slicks and windrows without another sampled texture in the water pass.
+	return vec4f( perlin2( uv * 4.0 ), perlin2( uv * 5.0 + 17.0 ), perlin2( uv * 4.0 + 31.0 ), perlin2( uv * 6.0 + 47.0 ) ) * 0.5 + 0.5;
+#else
 	return textureSampleLevel( seaDetailNoise, smpLinearRepeat, uv, 0.0 );
+#endif
 }
 
 fn seaDetailSample( xz: vec2f ) -> SeaDetailSample {

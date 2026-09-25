@@ -149,9 +149,8 @@ export class WakeSim {
 		this.aerOut = U.aerOut;
 
 		// (h, dh/dx, dh/dz, foam), sampled linear / repeat (smpLinearRepeat)
-		this.display = new Texture( { label: 'wakeDisplay', width: N, height: N, format: 'rgba16float', usage: [ 'sample', 'storage' ], sampler: 'linearRepeat' } );
-		// read with textureLoad: no sampler binding
-		this.aerTex = new Texture( { label: 'wakeAeration', width: N, height: N, format: 'rgba16float', usage: [ 'sample', 'storage' ], sampler: 'nearestRepeat' } );
+		this.display = new Texture( { label: 'wake fields', width: N, height: N, depth: 2, dimension: '2d-array', format: 'rgba16float', usage: [ 'sample', 'storage' ], sampler: 'linearRepeat' } );
+		// Layer 0: surface; layer 1: aeration. Both fields use one sampled texture binding.
 
 		// The boat must not feel its own steady wave pattern through the water queries (the
 		// controller models its hydrodynamics already, and the 1-3 frame query latency turns that
@@ -561,11 +560,11 @@ fn wakeCell( col: u32, row: u32 ) -> vec4f {
 	let rise = smoothstep( 0.25, 0.75, breakup * 0.6 + patchN * 0.4 ) * 1.3 + 0.45;
 	let aer = min( a0 * exp( - dt * ( a0 * 0.06 + rise / 25.0 ) ) + aerGen * dt, 3.0 ) * wet;
 	wakeAerB[ idx ] = aer;
-	textureStore( wakeAerOut, vec2u( col, row ), vec4f( aer, 0.0, 0.0, 0.0 ) );
+	textureStore( wakeDisplayOut, vec2u( col, row ), 1, vec4f( aer, 0.0, 0.0, 0.0 ) );
 
 	wakeScratch[ idx ] = vec4f( h, w1, foam, turb1 );
 	// the free surface is h (pushed down under the hull, the hollow behind the transom)
-	textureStore( wakeDisplayOut, vec2u( col, row ), vec4f( h, gx, gz, foam ) );
+	textureStore( wakeDisplayOut, vec2u( col, row ), 0, vec4f( h, gx, gz, foam ) );
 
 	return wakeDepthWeights( d ) * ( h + P );
 }
@@ -577,7 +576,6 @@ fn wakeCell( col: u32, row: u32 ) -> vec4f {
 			bindings: {
 				wakePileTex: { texture: this.pileTex },
 				wakeDisplayOut: { storageTexture: this.display, access: 'write' },
-				wakeAerOut: { storageTexture: this.aerTex, access: 'write' },
 			},
 			workgroupSize: [ HALF, 1, 1 ],
 			code: cellPhysics + /* wgsl */`
@@ -610,7 +608,7 @@ ${ stages( 'shRow', [ 0 ], - 1 ) }
 			label: 'Wake Columns',
 			modules: [ simModule ],
 			bindings: {
-				wakeDisplayTex: { texture: this.display },
+				wakeDisplayTex: { texture: this.display, view: { dimension: '2d', baseArrayLayer: 0, arrayLayerCount: 1 } },
 				wakeNearBuf: { storage: this.nearBuf, access: 'read_write' },
 				wakeNearOut: { storageTexture: this.nearTex, access: 'write' },
 			},
@@ -749,7 +747,6 @@ ${ stages( 'shRow', [ 0 ], 1 ) }
 			bindings: {
 				wakeDisplay: { texture: this.display },
 				wakeNear: { texture: this.nearTex },
-				wakeAerTex: { texture: this.aerTex },
 			},
 			code: /* wgsl */`
 fn wakeEdgeDist( xz: vec2f ) -> f32 {
@@ -774,7 +771,7 @@ fn wakeOff( xz: vec2f ) -> bool { return wakeParams.amount <= 0.0 || wakeEdgeDis
 
 fn wakeSample( xz: vec2f ) -> vec4f {
 	if ( wakeOff( xz ) ) { return vec4f( 0.0 ); }
-	var s = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0.0 ) * vec4f( vec3f( wakeFade( xz ) ), wakeFadeLong( xz ) );
+	var s = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0, 0.0 ) * vec4f( vec3f( wakeFade( xz ) ), wakeFadeLong( xz ) );
 	// the forced depression under the hull is covered by it: keep its edge out of the normals
 	let tc = wakeNearCoord( xz );
 	if ( wakeInTemplate( tc ) ) {
@@ -794,8 +791,8 @@ fn wakeAeration( xz: vec2f ) -> f32 {
 	let i = vec2i( floor( tc ) );
 	let fr = fract( tc );
 	let M = vec2i( i32( WAKE_MASK ) );
-	let a = mix( mix( textureLoad( wakeAerTex, i & M, 0 ).x, textureLoad( wakeAerTex, ( i + vec2i( 1, 0 ) ) & M, 0 ).x, fr.x ),
-		mix( textureLoad( wakeAerTex, ( i + vec2i( 0, 1 ) ) & M, 0 ).x, textureLoad( wakeAerTex, ( i + vec2i( 1, 1 ) ) & M, 0 ).x, fr.x ), fr.y );
+	let a = mix( mix( textureLoad( wakeDisplay, i & M, 1, 0 ).x, textureLoad( wakeDisplay, ( i + vec2i( 1, 0 ) ) & M, 1, 0 ).x, fr.x ),
+		mix( textureLoad( wakeDisplay, ( i + vec2i( 0, 1 ) ) & M, 1, 0 ).x, textureLoad( wakeDisplay, ( i + vec2i( 1, 1 ) ) & M, 1, 0 ).x, fr.x ), fr.y );
 	if ( a > 0.01 ) {
 		let m = wakeNoise( xz * 0.3 + vec2f( frame.time * 0.02, 0.0 ) ) * 0.55 + wakeNoise( xz * 0.85 + 17.3 ) * 0.45;
 		let aN = ( 1.0 - exp( a * - 0.5 ) ) * ( m * 0.8 + 0.6 );
@@ -806,7 +803,7 @@ fn wakeAeration( xz: vec2f ) -> f32 {
 
 fn wakeHeight( xz: vec2f ) -> f32 {
 	if ( wakeOff( xz ) ) { return 0.0; }
-	var h = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0.0 ).x;
+	var h = textureSampleLevel( wakeDisplay, smpLinearRepeat, xz / WAKE_SIZE, 0, 0.0 ).x;
 	let tc = wakeNearCoord( xz );
 	if ( wakeInTemplate( tc ) ) {
 		// under the hull only waves moving relative to it remain (an old wake being crossed);

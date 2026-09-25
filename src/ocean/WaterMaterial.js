@@ -1,5 +1,6 @@
-import { Material, ShaderModule, G } from '../engine/webgpu.js';
+import { GPU, Material, ShaderModule, G } from '../engine/webgpu.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
+import { SceneLighting } from '../engine/render/wgsl/lighting.js';
 import { whaleWaterModule } from './WhaleWater.js';
 import { REFRACTION_GUARD } from './RefractionPass.js';
 
@@ -159,13 +160,17 @@ export class WaterMaterial extends Material {
 		const CL = !! ( this.clouds && this.clouds.module );
 		const HULL = !! ( this.hullMaskTexture && this.hullMaskActive );
 		const REFL = !! ( this.reflection && this.reflection.module );
+		// The complete water material exceeds sixteen sampled textures. On baseline devices, reuse the
+		// environment probe and shared foam pattern, and derive small detail fields procedurally.
+		const compact = GPU.limits.maxSampledTexturesPerShaderStage < 24;
+		this.setDefine( 'WATER_TEXTURE_LIMITED', compact ? 1 : 0 );
 
 		this.modules = [ commonModule, waterFresnelModule, waterHelpersModule, whaleWaterModule, S.module, sky && sky.module, CL && this.clouds.module,
 			SIM && S.shoreSim.module, REFL && this.reflection.module, this.cameraWaterHeightNode && this.cameraWaterHeightNode.module ].filter( Boolean );
 		this.bindings.waterSceneColor = { texture: this.sceneColorTexture };
 		this.bindings.waterSceneDepth = { texture: this.sceneDepthTexture, sampleType: 'unfilterable-float' };
-		if ( this.sceneDepthHalfTexture ) this.bindings.waterSceneDepthHalf = { texture: this.sceneDepthHalfTexture };
-		this.setDefine( 'WATER_DEPTH_HALF', this.sceneDepthHalfTexture ? 1 : 0 );
+		if ( this.sceneDepthHalfTexture && ! compact ) this.bindings.waterSceneDepthHalf = { texture: this.sceneDepthHalfTexture };
+		this.setDefine( 'WATER_DEPTH_HALF', this.sceneDepthHalfTexture && ! compact ? 1 : 0 );
 		const REFR = !! this.refraction;
 		if ( REFR ) {
 
@@ -192,6 +197,27 @@ export class WaterMaterial extends Material {
 	o.vSurfMask = r.surfMask;
 `;
 		this.output = this.cheap ? 'r.color = vec4f( 0.02, 0.05, 0.1, 1.0 ); r.mask = vec4f( 0.0, 1.0, 0.0, 1.0 );' : this._shadeWGSL( { T, SH, SIM, SF, CL, HULL, REFL } );
+		if ( compact && ! this.cheap ) {
+
+			const probe = SceneLighting.hooks.envSpecular;
+			this.output = this.output.replace( /\bskyReflectionRadiance\(/g, 'waterProbeReflection(' )
+				.replace( /\bskyRadianceWithClouds\(/g, 'waterProbeSky(' )
+				.replace( /\bterrainNormalRock\(/g, 'waterGroundNormal(' );
+			this.modules.push( new ShaderModule( { name: 'water compact', deps: probe ? [ probe ] : [], code: /* wgsl */`
+fn waterProbeReflection( dir: vec3f ) -> vec3f { return ${ probe ? 'hookEnvSpecular( dir, 0.0 )' : 'mix( frame.horizonColor, frame.skyIrradiance * PI, sat( dir.y ) )' }; }
+fn waterProbeSky( dir: vec3f, withSun: bool ) -> vec3f { return waterProbeReflection( dir ); }
+${ T ? `
+// Derive the shore slope from the height map already used by refraction.
+fn waterGroundNormal( xz: vec2f ) -> vec4f {
+	let e = terrainParams.size / terrainParams.res;
+	let dx = terrainHeightAt( xz + vec2f( e, 0.0 ) ) - terrainHeightAt( xz - vec2f( e, 0.0 ) );
+	let dz = terrainHeightAt( xz + vec2f( 0.0, e ) ) - terrainHeightAt( xz - vec2f( 0.0, e ) );
+	let n = normalize( vec3f( -dx, 2.0 * e, -dz ) );
+	return vec4f( n.xz, 0.0, 1.0 );
+}` : '' }
+` } ) );
+
+		}
 		this.needsUpdate = true;
 
 	}

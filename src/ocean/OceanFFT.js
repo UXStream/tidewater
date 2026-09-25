@@ -527,8 +527,8 @@ ${ stages }
 		} );
 
 		// ---- mip chains in compute (instead of 2 textures x 4 layers x 8 levels of render passes)
-		// A: 16x16 threads per 32x32 texel tile of level 0 -> levels 1..5 through workgroup memory
-		// B: one 8x8 workgroup per layer -> levels 6..8
+		// A: 16x16 threads per 32x32 texel tile -> levels 1..4, plus level 5 in mipMid
+		// B: one 8x8 workgroup per layer -> levels 5..8 (at most four storage textures per pass)
 
 		// threads (lx, ly) < width reduce a 2x2 block of `from` (row length 2*width) into `to`
 		const reduce = ( from, to, width, lvl, t ) => {
@@ -541,7 +541,7 @@ ${ stages }
 	if ( lx < ${ width }u && ly < ${ width }u ) {
 		let i = ly * ${ 2 * w2 }u + lx * 2u;
 		let v = ( ${ from }[ i ] + ${ from }[ i + 1u ] + ${ from }[ i + ${ w2 }u ] + ${ from }[ i + ${ w2 + 1 }u ] ) * 0.25;
-		textureStore( out${ lvl }, vec2u( gx * ${ width }u + lx, gy * ${ width }u + ly ), c, v );
+		${ lvl === 5 ? '' : `textureStore( out${ lvl }, vec2u( gx * ${ width }u + lx, gy * ${ width }u + ly ), c, v );` }
 		${ dst }
 	}`;
 
@@ -551,7 +551,7 @@ ${ stages }
 			label: 'Ocean Mips A',
 			bindings: {
 				mipSrc: rw( this.mipSrc ), mipMid: rw( this.mipMid ),
-				out1: level( tex, 1 ), out2: level( tex, 2 ), out3: level( tex, 3 ), out4: level( tex, 4 ), out5: level( tex, 5 ),
+				out1: level( tex, 1 ), out2: level( tex, 2 ), out3: level( tex, 3 ), out4: level( tex, 4 ),
 			},
 			workgroupSize: [ 16, 16, 1 ],
 			code: /* wgsl */`
@@ -582,7 +582,7 @@ ${ reduce( 's4', null, 1, 5, t ) }
 
 		const mipB = ( tex, t ) => new ComputeKernel( {
 			label: 'Ocean Mips B',
-			bindings: { mipMid: rw( this.mipMid ), out6: level( tex, 6 ), out7: level( tex, 7 ), out8: level( tex, 8 ) },
+			bindings: { mipMid: rw( this.mipMid ), out5: level( tex, 5 ), out6: level( tex, 6 ), out7: level( tex, 7 ), out8: level( tex, 8 ) },
 			workgroupSize: [ 8, 8, 1 ],
 			code: /* wgsl */`
 var<workgroup> s5: array<vec4f, 64>;
@@ -593,6 +593,7 @@ fn main( @builtin( local_invocation_id ) lid: vec3u, @builtin( workgroup_id ) wi
 	let lx = lid.x; let ly = lid.y; let c = wid.z;
 	let gx = 0u; let gy = 0u;
 	s5[ ly * 8u + lx ] = mipMid[ ( c * 64u + ly * 8u + lx ) * 2u + ${ t }u ];
+	textureStore( out5, vec2u( lx, ly ), c, s5[ ly * 8u + lx ] );
 	workgroupBarrier();
 ${ reduce( 's5', 's6', 4, 6, t ) }
 	workgroupBarrier();
