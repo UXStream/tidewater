@@ -305,6 +305,8 @@ ${ SH ? '	let folded = surf.jacobian < 0.1 || normalize( in.vs.vShoreN ).y < 0.3
 	var ssrW = 0.0;
 	var dbgPath = 0.0;
 	var dbgScene = vec3f( 0.0 );
+	var dbgSrc = vec3f( 0.0 ); // which image the seabed came from (debug view 12)
+	var dbgRefr = vec3f( 0.0 ); // refraction image at the end point: coverage, depth > 0, behind (13)
 
 	if ( ! viewFromBelow ) {
 
@@ -412,7 +414,8 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 			// objects in front of it (the hull of the boat you stand in, pier piles) would otherwise be
 			// pasted onto the sea far out, wherever the end point lands on them (or off screen next to
 			// them: the edge texel)
-			if ( rc.a > 0.5 && rd > 0.0 && surfViewZ + viewDepth( rd ) > 0.05 ) {
+			dbgRefr = vec3f( rc.a, select( 0.0, 1.0, rd > 0.0 ), select( 0.0, 1.0, surfViewZ + viewDepth( rd ) > WATER_BEHIND ) );
+			if ( rc.a > 0.5 && rd > 0.0 && surfViewZ + viewDepth( rd ) > WATER_BEHIND ) {
 				sceneCol = rc.rgb / rc.a;
 				uvF = uvR;
 				dR = rd;
@@ -424,7 +427,7 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 				let uvS = _waterRefrUV( vec2f( screenUV.x * 2.0 - 1.0, 1.0 - screenUV.y * 2.0 ) );
 				let rcS = textureSampleLevel( waterRefrColor, smpLinearClamp, uvS, 0.0 );
 				let rdS = textureLoad( waterRefrDepth, vec2i( min( uvS * rSize, rSize - 1.0 ) ), 0 ).x;
-				if ( rcS.a > 0.5 && rdS > 0.0 && surfViewZ + viewDepth( rdS ) > 0.05 ) {
+				if ( rcS.a > 0.5 && rdS > 0.0 && surfViewZ + viewDepth( rdS ) > WATER_BEHIND ) {
 					sceneCol = rcS.rgb / rcS.a;
 					uvF = screenUV;
 					dR = rdS;
@@ -437,10 +440,22 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 			// nothing under the water there (shallows above the clip height, off screen): the opaque copy,
 			// where the refracted sample lies behind the water surface, else the unrefracted pixel
 			let dO = _waterSceneDepthAt( uvR );
-			let valid = onScreen && surfViewZ + viewDepth( dO ) > 0.05;
+			let valid = onScreen && surfViewZ + viewDepth( dO ) > WATER_BEHIND;
 			uvF = select( screenUV, uvR, valid );
 			dR = select( _waterSceneDepthAt( screenUV ), dO, valid );
 			sceneCol = textureSampleLevel( waterSceneColor, smpLinearClamp, uvF, 0.0 ).rgb;
+		} else {
+			// Thin water (the swash film on the sand): the refraction offset is a few pixels at most and
+			// nothing can stand between the film and the sand, so the opaque pass's own image of the sand
+			// is the right one: it has the wet swash sand and its ripples, which the refraction image
+			// draws as plain seabed and leaves out altogether above its clip height (0.4 m). Switching
+			// between the two there drew a hard straight line across the wet sand along that height.
+			let filmW = 1.0 - smoothstep( 0.04, 0.3, thickness );
+			if ( filmW > 0.0 ) {
+				let dO = _waterSceneDepthAt( uvR );
+				let uvO = select( screenUV, uvR, onScreen && surfViewZ + viewDepth( dO ) > WATER_BEHIND );
+				sceneCol = mix( sceneCol, textureSampleLevel( waterSceneColor, smpLinearClamp, uvO, 0.0 ).rgb, filmW );
+			}
 		}
 		// (a branch: select() would evaluate the sky for every pixel)
 		if ( thruCrest ) { sceneCol = skyReflectionRadiance( normalize( vec3f( Tv.x, max( abs( Tv.y ), 0.03 ), Tv.z ) ) ); }
@@ -452,6 +467,7 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		pathLen = min( pathLen, crestT );
 		dbgPath = pathLen;
 		dbgScene = sceneCol;
+		dbgSrc = select( vec3f( 1.0, 0.0, 0.0 ), vec3f( 0.0, 1.0, 0.0 ), found );
 
 		// bubbles mixed into the water (the surf behind breakers, wakes): a strong scatterer, the water
 		// turns milky turquoise and the bottom disappears (WaterSurface.fragment aeration)
@@ -561,7 +577,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 
 	}
 
-	// debug views: 1 = back faces red, 2 = normals, 3 = foam
+	// debug views: 1 = back faces red, 2 = normals, 3 = foam, 7 = the seabed seen through, 12 = its source
 	let dbg = mat.debugMode;
 	var res = min( outCol, vec3f( 16000.0 ) );
 	if ( dbg == 1 ) {
@@ -587,6 +603,11 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 		res = vec3f( 0.0, vDepth * 0.02, 0.0 );
 	} else if ( dbg == 7 ) {
 		res = dbgScene;
+	} else if ( dbg == 13 ) {
+		res = dbgRefr;
+	} else if ( dbg == 12 ) {
+		// green: the refraction image, red: the opaque copy (nothing below the water there in the image)
+		res = dbgSrc;
 	} else if ( dbg == 11 ) {
 		// surf foam sources: whitewater of the breaking wave (r), foam carried by the shore sim (g), clear plunging face (b)
 		res = vec3f( in.vs.vShoreFoam, simState.x, in.vs.vSurfMask.x );
@@ -607,6 +628,9 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 const RG = REFRACTION_GUARD;
 const _g6 = ( v ) => v.toFixed( 6 );
 const WATER_HELPERS = /* wgsl */`
+// a refracted sample is usable when it lies this far behind the water surface (view depth, m): objects in
+// front of it (the hull you stand in, pier piles) are rejected
+const WATER_BEHIND: f32 = 0.05;
 // screen NDC -> uv in the refraction image, which extends past the screen (RefractionPass guard band)
 fn _waterRefrUV( ndc: vec2f ) -> vec2f {
 	let n = ( ndc - vec2f( ${ _g6( RG.cx ) }, ${ _g6( RG.cy ) } ) ) / vec2f( ${ _g6( RG.sx ) }, ${ _g6( RG.sy ) } );

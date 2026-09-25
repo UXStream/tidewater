@@ -27,7 +27,9 @@ app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async ()
 		window.__bench = new ( await import( './core/Bench.js' ) ).Bench( app );
 		if ( app.qs.has( 'auto' ) ) window.__job = window.__bench.auto( app.qs.get( 'auto' ), { runs: Number( app.qs.get( 'runs' ) ) || 1 } );
 		// ?bench&shots=view1,view2[&tag=name][&dt=seconds]: reference shots of the named views only (core/DebugViews.js; dt > 0: the clock runs, e.g. for the eased lens flare)
-		else if ( app.qs.has( 'shots' ) ) window.__job = window.__bench.shots( app.qs.get( 'shots' ).split( ',' ), { tag: app.qs.get( 'tag' ) || 'shot', dt: Number( app.qs.get( 'dt' ) ) || 0 } );
+		// &wdbg=N: the water shader's debug view (WaterMaterial debugMode) in the shots
+		if ( app.qs.has( 'wdbg' ) && app.waterMaterial ) app.waterMaterial.debugMode.value = Number( app.qs.get( 'wdbg' ) );
+		if ( app.qs.has( 'shots' ) ) window.__job = window.__bench.shots( app.qs.get( 'shots' ).split( ',' ), { tag: app.qs.get( 'tag' ) || 'shot', dt: Number( app.qs.get( 'dt' ) ) || 0 } );
 
 	} else app.start();
 	ui.showStartOverlay( () => {
