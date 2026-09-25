@@ -25,6 +25,8 @@ export const VIEWS = {
 	// at the waterline looking down toward the sun over the swash film (its edge on the wet sand)
 	swashFilm: { p: [ 10, 1.7, - 44 ], yaw: 0, pitch: 0, time: 16.2, lookSun: [ - 0.5, - 1.0 ] },
 	swashFilmE: { p: [ 30, 1.7, - 39 ], yaw: 0, pitch: 0, time: 16.2, lookSun: [ - 0.5, - 0.9 ] },
+	// from above the beach: the back edge of the swash sheet in the backwash (Dan's view)
+	swashAbove: { p: [ 46.08, 23.35, - 53.27 ], yaw: 1.87, pitch: - 0.57, time: 16.2 },
 	palms: { p: [ - 30, 3.2, - 58 ], yaw: Math.PI * 0.42, pitch: - 0.1, time: 9.5 },
 	tHeadW: { p: [ - 150, 6, 40 ], yaw: 1.156, pitch: 0.02, time: 15.0 },
 	tLowSun: { p: [ 60, 95, 140 ], yaw: Math.PI * 0.08, pitch: - 0.35, time: 17.6 },
@@ -38,6 +40,14 @@ export const VIEWS = {
 export function installDebugViews( app ) {
 
 	window.__views = Object.keys( VIEWS );
+	// the current camera as a VIEWS entry (paste it back as a named view): __pose()
+	window.__pose = () => {
+
+		const c = app.camera, e = new Vector3().setFromMatrixColumn( c.matrixWorld, 2 ).negate();
+		const r = ( v ) => Math.round( v * 100 ) / 100;
+		return JSON.stringify( { p: [ r( c.position.x ), r( c.position.y ), r( c.position.z ) ], yaw: r( Math.atan2( - e.x, - e.z ) ), pitch: r( Math.asin( e.y ) ), time: r( app.settings.timeOfDay ) } );
+
+	};
 	window.__view = ( name ) => {
 
 		const v = VIEWS[ name ];

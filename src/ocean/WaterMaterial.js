@@ -248,8 +248,18 @@ ${ T ? '	sunLight *= terrainSunShadowAt( pos );' : '' }
 	var swTau = 0.0;
 	var swRt = 0.0;
 ${ hasClip ? `	if ( vDepth < 1.0 ) {
+		let tRaw = thickness;
 		let se = shoreSwashEdge( pos.xz, thickness );
 		thickness = se.x; frontD = se.y; swTau = se.z; swRt = se.w;
+		// The draining sheet has no rounded front: it thins out over decimetres and breaks up where the
+		// sand drains faster. The analytic front runs parallel to the shoreline; kept as a hard, smooth
+		// edge (with the uprush's meniscus, rim and contact shadow) it read as a dark line ruled along
+		// the beach between the foam and the wet sand.
+		let backwash = smoothstep( 0.32, 0.46, swTau );
+		if ( backwash > 0.0 && swRt > 0.0 && frontD < 3.0 ) {
+			frontD += ( perlin2( pos.xz * 1.1 ) * 0.35 + perlin2( pos.xz * 3.7 + vec2f( 5.3, 1.9 ) ) * 0.15 ) * backwash;
+			thickness = min( tRaw, frontD * mix( 0.08, 0.025, backwash ) );
+		}
 	}` : '' }
 	// the foam line riding the swash front, per pixel: a dense bubbly bead right at the edge while
 	// the sheet runs up, a thinning lace behind it; weaker in the backwash (it sinks into the sand)
@@ -263,8 +273,8 @@ ${ hasClip ? `	if ( swRt > 0.0 && vDepth < 0.4 ) {
 		edgePatch = smoothstep( -0.45, 0.55, perlin2( pos.xz * 0.42 ) ) * 0.7 + smoothstep( -0.3, 0.6, perlin2( pos.xz * 1.7 + vec2f( 3.1, 7.7 ) ) ) * 0.3;
 	}` : '' }
 	let edgeFoam = ( bead * mix( 0.45, 1.1, uprush ) * mix( 0.35, 1.0, edgePatch ) + trail * mix( 0.12, 0.4, uprush ) * edgePatch ) * smoothstep( 0.0, 1.0, swRt ) * smoothstep( 0.4, -0.2, vDepth );
-	// the meniscus: the last decimetre of the sheet bends down to the sand
-	let lipW = 1.0 - smoothstep( 0.0, 0.14, frontD );
+	// the meniscus: the last decimetre of the advancing sheet bends down to the sand
+	let lipW = ( 1.0 - smoothstep( 0.0, 0.14, frontD ) ) * uprush;
 
 	let simState = ${ SIM ? 'shoreSimSample( pos.xz )' : 'vec4f( 0.0 )' };
 	let surf = waterSurfaceFragment( lagXZ, footprint, vDepth, in.vs.vFoam, in.vs.vShoreN, in.vs.vShoreFoam + edgeFoam, simState.x, simState, in.vs.vSurfMask, pos );
@@ -313,7 +323,7 @@ ${ SH ? '	let folded = surf.jacobian < 0.1 || normalize( in.vs.vShoreN ).y < 0.3
 		// ================= ABOVE WATER =================
 		// near the leading edge the surface bends down to meet the sand like a rounded bead
 		// (meniscus), tilting the normal toward dry land
-		let edgeW = max( 1.0 - smoothstep( 0.0, 0.006, thickness ), lipW );
+		let edgeW = max( ( 1.0 - smoothstep( 0.0, 0.006, thickness ) ) * uprush, lipW );
 		let nr = ${ T ? 'terrainNormalRock( pos.xz )' : 'vec4f( 0.0 )' };
 		let uphill = normalize( - vec2f( nr.x, nr.y ) + vec2f( 1e-5, 0.0 ) );
 		let N = normalize( Nview + vec3f( uphill.x, 0.0, uphill.y ) * ( edgeW * edgeW * 0.7 ) );
@@ -522,7 +532,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 		let foamCol = foamLit * mat.foamIntensity;
 
 		// a thin bright rim just behind the edge: the rounded bead catches the sky
-		let rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD );
+		let rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
 		let water = mix( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
 		let shaded = mix( water, foamCol + sunSpec * 0.05, sat( foam ) );
 		// fade into the sand right at the leading edge (anti-aliased by the film thickness)
@@ -531,7 +541,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 		// shadow and the wetting front), fading within ~15 cm
 		outCol = shaded;
 		if ( edgeAA < 1.0 ) {
-			let contact = smoothstep( -0.16, -0.005, frontD ) * ( 1.0 - edgeAA );
+			let contact = smoothstep( -0.16, -0.005, frontD ) * ( 1.0 - edgeAA ) * uprush;
 			let sandC = textureSampleLevel( waterSceneColor, smpLinearClamp, screenUV, 0.0 ).rgb * ( 1.0 - 0.3 * contact );
 			outCol = mix( sandC, shaded, edgeAA );
 		}

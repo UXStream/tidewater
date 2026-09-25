@@ -601,13 +601,20 @@ fn shoreSwashRunup( sh: vec4f, along: f32, groundH: f32 ) -> ShoreRunup {
 // thin, so the sheet ends on the analytic front instead of the mesh triangles at ~no cost.
 fn shoreSwashEdge( p: vec2f, t: f32 ) -> vec4f {
 	var out = vec4f( t, 1e3, 0.0, 0.0 );
-	if ( t < 0.2 ) {
+	if ( t < 0.3 ) {
 		let g = terrainHeightAt( p );
-		if ( g > frame.seaLevel ) {
+		if ( g > frame.seaLevel - 0.8 ) {
 			let ph = shorePhaseAt( p );
 			let r = shoreSwashRunup( ph.sh, ph.along, g );
 			let front = r.Rt - r.inland;
-			out = vec4f( min( t, front * 0.08 ), front, r.tau, r.Rt );
+			// The lapping region reaches down the beach face past where the sea's edge sits in the trough
+			// of the backwash (it stopped at sea level: a strip in between with a straight edge across the
+			// draining water), and fades in from there and from 0.3 m of film instead of switching on.
+			// The front distance is divided by the weight so the effects at the front recede with it.
+			let w = smoothstep( frame.seaLevel - 0.8, frame.seaLevel - 0.4, g ) * smoothstep( 0.3, 0.15, t );
+			if ( w > 0.0 ) {
+				out = vec4f( mix( t, min( t, front * 0.08 ), w ), front / max( w, 1e-3 ), r.tau, r.Rt * w );
+			}
 		}
 	}
 	return out;
