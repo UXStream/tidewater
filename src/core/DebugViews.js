@@ -20,6 +20,8 @@ export const VIEWS = {
 	// from the pier over the shallows, looking down (refraction near the bottom edge of the screen)
 	pierShallows: { p: [ 53.4, 3.92, 5 ], yaw: 1.2, pitch: - 0.45, time: 9.0 },
 	pierShallowsE: { p: [ 56.6, 3.92, 5 ], yaw: - 1.2, pitch: - 0.45, time: 16.5 },
+	// looking at the sun from the beach, a little off axis (lens flare, sun disc); lookSun: aimed once the sky has updated
+	sunFlare: { p: [ 15, 3.0, - 58 ], yaw: 0, pitch: 0, time: 11.0, lookSun: [ 0.18, - 0.08 ] },
 	palms: { p: [ - 30, 3.2, - 58 ], yaw: Math.PI * 0.42, pitch: - 0.1, time: 9.5 },
 	tHeadW: { p: [ - 150, 6, 40 ], yaw: 1.156, pitch: 0.02, time: 15.0 },
 	tLowSun: { p: [ 60, 95, 140 ], yaw: Math.PI * 0.08, pitch: - 0.35, time: 17.6 },

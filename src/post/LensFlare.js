@@ -10,7 +10,10 @@ import { MathUtils, Vector2, Vector3 } from '../engine/math/index.js';
 //    from the sun through the image centre; each with a bright rim, a soft body and dispersion
 //    fringes (every colour images the aperture at a slightly different size)
 //  - halo: a faint dispersive ring around the image centre, strongest when the sun nears the edge
-//  - starburst: diffraction spikes from the aperture blades (14 for 7 blades) around the sun
+//  - starburst: diffraction spikes from the aperture blades (14 for 7 blades) around the sun: short
+//    and tapering, each a little different in length and strength (no two blades are identical), red
+//    reaching a little further than blue (diffraction scales with wavelength), a pixel or so wide;
+//    and a haze of fine short streaks right around the disc
 //  - veiling glare: a soft wide glow lifting the blacks
 // The sun's visibility (fraction of the disc not hidden by the scene, times the cloud
 // transmittance) is measured on the GPU from the depth buffer every frame and eased, so leaves and
@@ -160,16 +163,36 @@ ${ ghosts }
 	let rc = length( p );
 	let halo = vec3f( smoothstep( 0.03, 0.0, abs( rc - 0.43 ) ), smoothstep( 0.03, 0.0, abs( rc - 0.445 ) ), smoothstep( 0.03, 0.0, abs( rc - 0.46 ) ) ) * smoothstep( 0.25, 0.8, length( s ) ) * 0.12;
 
-	// starburst and veiling glare around the sun
+	// starburst and veiling glare around the sun (distances in image heights)
 	let q = p - s;
 	let rq = max( length( q ), 1e-4 );
 	let aq = atan2( q.y, q.x ) + ${ f( ROT ) };
-	let spikes = pow( abs( cos( aq * ${ f( BLADES ) } ) ), 600.0 ) * exp( rq * -9.0 ) * 1.2;
-	let fine = pow( abs( cos( aq * 53.0 + cos( aq * 11.0 ) * 2.0 ) ), 80.0 ) * exp( rq * -22.0 ) * 0.35;
+	let px = 1.0 / max( frame.outputResolution.y, 1.0 );
+	// the nearest spike (two per blade) and this pixel's distance from its line
+	let seg = ${ f( Math.PI / BLADES ) };
+	let k = floor( aq / seg + 0.5 );
+	let perp = abs( sin( aq - k * seg ) ) * rq;
+	let ki = k - ${ f( 2 * BLADES ) } * floor( k / ${ f( 2 * BLADES ) } ); // same spike across the atan2 seam
+	let h1 = fract( sin( ki * 12.9898 + 4.1 ) * 43758.5453 );
+	let h2 = fract( sin( ki * 78.233 + 1.7 ) * 43758.5453 );
+	// thin at the disc, a little softer outward (same energy across the line: dimmer as it widens)
+	let width = px * 0.8 + rq * 0.003;
+	let line = exp( - ( perp * perp ) / ( width * width ) ) * ( px * 0.8 / width );
+	let len = 0.05 + 0.08 * h1;
+	let lenC = vec3f( len * 1.12, len, len * 0.88 );
+	let taper = exp( - rq / lenC - ( rq * rq ) / ( lenC * lenC * 4.0 ) );
+	let spikes = line * taper * ( 0.45 + 0.55 * h2 ) * 1.4;
+	// fine streaks around the disc: smooth angular noise, short
+	let t = ( aq * ${ f( 1 / ( 2 * Math.PI ) ) } + 0.5 ) * 48.0;
+	let ti = floor( t );
+	let hA = fract( sin( ( ti - 48.0 * floor( ti / 48.0 ) ) * 91.345 ) * 43758.5453 );
+	let hB = fract( sin( ( ti + 1.0 - 48.0 * floor( ( ti + 1.0 ) / 48.0 ) ) * 91.345 ) * 43758.5453 );
+	let n = mix( hA, hB, smoothstep( 0.0, 1.0, t - ti ) );
+	let fine = pow( n, 5.0 ) * exp( - rq / 0.03 ) * 0.3;
 	let glow = exp( rq * -5.0 ) * 0.05 + exp( rq * -40.0 ) * 0.4;
-	let burst = spikes + fine + glow;
+	let burst = spikes + vec3f( fine + glow );
 
-	return light * ( ghosts * offAxis + halo + vec3f( burst ) );
+	return light * ( ghosts * offAxis + halo + burst );
 }
 `,
 		} );

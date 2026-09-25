@@ -295,6 +295,16 @@ export class Bench {
 			app.post.outputTexture = this._out;
 			try {
 
+				const lookSun = VIEWS[ name ] && VIEWS[ name ].lookSun;
+				if ( lookSun ) {
+
+					// the sun follows the time of day set by pose(): aim once the sky has updated
+					await this._frames( 2, dt );
+					const d = G.sunDir.value;
+					app.fly.setPose( app.fly.camera.position.clone(), Math.atan2( - d.x, - d.z ) + lookSun[ 0 ], Math.asin( d.y ) + lookSun[ 1 ] );
+
+				}
+
 				await this._frames( frames, dt );
 				for ( let k = 0; k < seq; k ++ ) {
 
