@@ -238,7 +238,7 @@ export class AppUI {
 		}
 
 		s.aa = app.post.aaMode;
-		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'TAA: temporal anti-aliasing and upscaling (also resolves the dithered fades and soft shadow noise). SMAA / FXAA: spatial filters, sharper in motion, no upscaling.', options: [ { label: 'None', value: 'none' }, { label: 'TAA', value: 'taa' }, { label: 'SMAA', value: 'smaa' }, { label: 'FXAA', value: 'fxaa' } ], onChange: ( v ) => { app.post.aaMode = v; } } );
+		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'TAA: temporal anti-aliasing and upscaling (also resolves the dithered fades and soft shadow noise). SMAA + TAA: SMAA on every frame, then the TAA (steadier thin geometric edges, still smooths foliage). SMAA / FXAA: spatial filters, sharper in motion, no upscaling.', options: [ { label: 'None', value: 'none' }, { label: 'TAA', value: 'taa' }, { label: 'SMAA + TAA', value: 'smaataa' }, { label: 'SMAA', value: 'smaa' }, { label: 'FXAA', value: 'fxaa' } ], onChange: ( v ) => { app.post.aaMode = v; } } );
 		quality.addToggle( { label: 'Shadows', object: s, key: 'shadows', onChange: ( v ) => { app.shadows.enabled = v; } } );
 		s.ssr = true;
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );

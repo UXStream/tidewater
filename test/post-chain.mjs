@@ -3,6 +3,7 @@
 // output resolution, with stubbed modules of the other streams.
 //   node test/post-chain.mjs [mode] [out.png]     mode: air | under | motion | noao | flare | lens | waterline
 import { writePNG } from './headless.mjs';
+import './smaa-shim.mjs';
 import { GPU } from '../src/engine/gpu/GPU.js';
 import { ShaderModule, UniformBlock } from '../src/engine/gpu/Shader.js';
 import { Texture } from '../src/engine/gpu/Texture.js';
@@ -148,7 +149,7 @@ const haze = new AirHaze( { depthTexture: sceneRenderer.sceneRT.depthTexture, un
 const engine = { width: W, height: H };
 const sunDirU = realApp ? atmosphere.sunDir : { value: G.sunDir.value.clone() };
 const post = new PostFX( engine, { sceneRenderer, camera, underwater, clouds, sunDir: sunDirU, haze } );
-// AA=none|taa|smaa|fxaa: the anti-aliasing mode (SMAA's lookup textures are read from public/)
+// AA=none|taa|smaataa|smaa|fxaa: the anti-aliasing mode (SMAA's lookup textures are read from public/)
 if ( process.env.AA ) post.aaMode = process.env.AA;
 post.outputTexture = new Texture( { label: 'out', width: W, height: H, format: 'rgba8unorm', usage: [ 'render', 'copySrc', 'sample' ] } );
 if ( process.env.SCALE ) post.setScale( Number( process.env.SCALE ) );

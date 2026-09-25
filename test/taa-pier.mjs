@@ -3,8 +3,10 @@
 // Renders a still sequence and a walking sequence (1.4 m/s along the deck) and writes raw frames
 // (BGRA-free RGBA8 with an 8-byte width / height header) for inspection, plus a flicker number: the
 // mean absolute difference between consecutive frames over the deck, in 8-bit units.
-//   node test/taa-pier.mjs [outDir=/tmp/taa-pier] [mode=taa|none|ref]   (ref: 16x supersampled ground truth)
+//   node test/taa-pier.mjs [outDir=/tmp/taa-pier] [mode=taa|smaataa|smaa|none|ref]   (ref: 16x supersampled ground truth;
+//   smaataa: SMAA on each jittered frame, then the TAA)
 import './headless.mjs';
+import './smaa-shim.mjs';
 import fs from 'node:fs';
 import { worldHarness } from './world-harness.mjs';
 import { TerrainData } from '../src/world/TerrainData.js';
@@ -16,6 +18,7 @@ import { RenderTarget, StorageBuffer } from '../src/engine/gpu/Texture.js';
 import { readTexture } from '../src/engine/gpu/Readback.js';
 import { setFrameCamera, FrameUniforms } from '../src/engine/render/Frame.js';
 import { TemporalUpscale } from '../src/post/TemporalUpscale.js';
+import { AntiAlias } from '../src/post/AntiAlias.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 
 const OUT = process.argv[ 2 ] || '/tmp/taa-pier';
@@ -39,7 +42,10 @@ const village = new Village( { scene, terrain, colliders: new Colliders() } );
 camera.fov = 62; camera.near = 0.1; camera.updateProjectionMatrix();
 // exposure 0.6: the tone map below
 const exposure = new StorageBuffer( { label: 'exposure', count: 1, type: 'f32', data: new Float32Array( [ 0.6 ] ) } );
-const taau = new TemporalUpscale( () => rt.texture, rt.depthTexture, rt.textures[ 1 ], camera, rt.textures[ 2 ], exposure );
+const TEMPORAL = MODE === 'taa' || MODE === 'smaataa';
+const aa = new AntiAlias( { src: () => rt.texture, exposure } );
+const smaaOut = new RenderTarget( W, H, { colors: [ 'rgba16float' ], label: 'smaaOut' } );
+const taau = new TemporalUpscale( () => ( MODE === 'smaataa' ? smaaOut.texture : rt.texture ), rt.depthTexture, rt.textures[ 1 ], camera, rt.textures[ 2 ], exposure );
 taau.setSize( W, H );
 // diagnostics: NODEPTH=1 (no depth-based history rejection), NOJIT=1
 // (no jitter: with a moving camera the output should match the current frame, any blur is the history's)
@@ -51,7 +57,7 @@ for ( const kv of ( process.env.SET || '' ).split( ',' ).filter( Boolean ) ) { c
 if ( process.env.PH ) taau.jitterPhaseOverride = Number( process.env.PH );
 if ( process.env.NODEPTH ) taau.uniforms.fields.depthThreshold.value = 1e9;
 const ldr = new RenderTarget( W, H, { colors: [ 'rgba8unorm' ], label: 'ldr' } );
-const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( MODE === 'taa' ? taau.output : rt.texture ) } },
+const tonemap = new FullscreenPass( { label: 'tonemap', colorFormats: [ 'rgba8unorm' ], bindings: { hdr: { texture: () => ( TEMPORAL ? taau.output : MODE === 'smaa' ? smaaOut.texture : rt.texture ) } },
 	code: `fn fragment( in: FSIn ) -> vec4f {
 		let c = textureSampleLevel( hdr, smpLinearClamp, in.uv, 0.0 ).rgb;
 		let a = c * 0.6; let t = ( a * ( 2.51 * a + 0.03 ) ) / ( a * ( 2.43 * a + 0.59 ) + 0.14 );
@@ -68,7 +74,7 @@ function frame() {
 	FrameUniforms.fields.frameIndex.value = ( FrameUniforms.fields.frameIndex.value + 1 ) >>> 0;
 	camera.updateMatrixWorld();
 	taau.advance();
-	const [ jx, jy ] = MODE === 'taa' ? ( process.env.NOJIT ? [ 0, 0 ] : taau.jitter() ) : MODE === 'ref' ? refJitter : [ 0, 0 ];
+	const [ jx, jy ] = TEMPORAL ? ( process.env.NOJIT ? [ 0, 0 ] : taau.jitter() ) : MODE === 'ref' ? refJitter : [ 0, 0 ];
 	const fl = process.env.FLIP ? - 1 : 1;
 	setFrameCamera( camera, W, H, { jitterX: - jx * fl, jitterY: jy * fl, prevViewProj: hasPrev ? prevVP : null, prevCameraPos: hasPrev ? prevCam : null } );
 	FrameUniforms.fields.outputResolution.value.set( W, H );
@@ -78,7 +84,8 @@ function frame() {
 	shadows.render( scene, mr, shadows.update( camera, Hs.G.sunDir.value ) );
 	mr.render( scene, { camera, kind: 'main', colorViews: rt.textures.map( ( t ) => t.view() ), colorFormats: rt.formats,
 		clearColors: [ [ 0.5, 0.62, 0.8, 1 ], [ 0, 0, 0, 0 ], [ 0, 0, 0, 0 ] ], depthView: rt.depthTexture.view(), depthFormat: 'depth32float', clearDepth: 0 } );
-	if ( MODE === 'taa' ) taau.render();
+	if ( MODE === 'smaa' || MODE === 'smaataa' ) aa.render( 'smaa', smaaOut.texture );
+	if ( TEMPORAL ) taau.render();
 	tonemap.render( { colorViews: [ ldr.texture ] } );
 	taau.clearViewOffset();
 	taau.endFrame();
@@ -184,6 +191,7 @@ if ( process.env.VELCHECK ) {
 
 }
 
+while ( ( MODE === 'smaa' || MODE === 'smaataa' ) && ! aa.area ) await new Promise( ( r ) => setTimeout( r, 10 ) );
 await run( 'still', 60, 0 );
 await run( 'walk', 60, 1.4 );
 process.exit( 0 );

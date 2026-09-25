@@ -183,9 +183,12 @@ ${ taps }
 		this.beauty = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'beauty' } );
 
 		// ---- temporal anti-aliasing + upscale
-		this.taau = new TemporalUpscale( () => this.beauty.texture, this.finalDepth, sceneRenderer.velocityTexture, camera, sceneRenderer.waterMaskTexture, this.exposure );
-		// anti-aliasing: 'taa' (the temporal upscaler, jittered camera) or a spatial filter ('smaa',
-		// 'fxaa', 'none') writing the same resolved image (AntiAlias.js)
+		// 'smaataa' (SMAA T2x style): SMAA on each jittered frame, the TAA accumulates the result
+		this.smaaIn = new RenderTarget( 1, 1, { colors: [ 'rgba16float' ], label: 'smaaBeforeTAA' } );
+		this.taau = new TemporalUpscale( () => ( this.aaMode === 'smaataa' ? this.smaaIn.texture : this.beauty.texture ), this.finalDepth, sceneRenderer.velocityTexture, camera, sceneRenderer.waterMaskTexture, this.exposure );
+		// anti-aliasing: 'taa' (the temporal upscaler, jittered camera), 'smaataa' (SMAA, then the TAA:
+		// crisp stable geometric edges from SMAA, sub-pixel detail and dithering from the TAA) or a
+		// spatial filter ('smaa', 'fxaa', 'none') writing the same resolved image (AntiAlias.js)
 		this.aaMode = 'taa';
 		this.aa = new AntiAlias( { src: () => this.beauty.texture, exposure: this.exposure } );
 
@@ -560,6 +563,7 @@ fn fragment( in: FSIn ) -> vec4f {
 		this._outW = ow; this._outH = oh; this._inW = iw; this._inH = ih;
 		this.sceneRenderer.setSize( iw, ih );
 		this.beauty.setSize( iw, ih );
+		this.smaaIn.setSize( iw, ih );
 		this.medium.setSize( iw, ih );
 		if ( this.underwater.setSize ) this.underwater.setSize( iw, ih );
 		// rtt resolution scales of the original are relative to the drawing buffer (output) size
@@ -623,7 +627,7 @@ fn fragment( in: FSIn ) -> vec4f {
 		if ( cam.matrixWorldInverse ) cam.matrixWorldInverse.copy( cam.matrixWorld ).invert();
 		this.motionBlur.updateCamera( cam );
 		this.taau.advance();
-		const [ jx, jy ] = this.aaMode === 'taa' ? this.taau.jitter() : [ 0, 0 ];
+		const [ jx, jy ] = this.aaMode === 'taa' || this.aaMode === 'smaataa' ? this.taau.jitter() : [ 0, 0 ];
 		// three's setViewOffset( w, h, jx, jy, w, h ) moves the view window by +jx px right / +jy px down,
 		// i.e. a clip-space translation of ( -2 jx / w, +2 jy / h )
 		setFrameCamera( cam, this._inW, this._inH, {
@@ -660,8 +664,9 @@ fn fragment( in: FSIn ) -> vec4f {
 		}
 
 		this._beautyPass.render( { colorViews: [ this.beauty.texture ], clear: CLR } );
-		if ( this.aaMode === 'taa' ) {
+		if ( this.aaMode === 'taa' || this.aaMode === 'smaataa' ) {
 
+			if ( this.aaMode === 'smaataa' ) this.aa.render( 'smaa', this.smaaIn.texture );
 			this.taau.render();
 
 		} else {
