@@ -235,7 +235,9 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		const newer = rand.chance( 0.07 );
 		const wth = newer ? rand.range( 0.25, 0.45 ) : rand.range( 0.55, 1.0 );
 		const t = newer ? freshTone() : tone();
-		const wdt = rand.range( 0.165, 0.2 );
+		// boards nearly fill the 0.215 m pitch (gaps ~0.5-2.5 cm): wider gaps turned the distant deck
+		// into rows of sub-pixel dark lines that no anti-aliasing kept steady
+		const wdt = rand.range( 0.198, 0.206 );
 		const yOff = rand.range( 0, 0.014 ) + ( rand.chance( 0.08 ) ? rand.range( 0.006, 0.016 ) : 0 );
 		const e0 = rand.range( - 0.06, 0.05 ), e1 = rand.range( - 0.05, 0.06 );
 		const xa = cx - L / 2 + e0, xb = cx + L / 2 + e1;
@@ -243,13 +245,13 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 			grain: 0, ry: rand.range( - 0.012, 0.012 ), rx: rand.range( - 0.022, 0.022 ), rz: rand.range( - 0.006, 0.006 ), tint: t,
 		} );
 		const walk = ( u0 ) => head ? 0 : - ( 1 + ( X - u0 ) ); // path centre along this piece
-		const zj = zc + rand.range( - 0.012, 0.012 );
+		const zj = zc + rand.range( - 0.004, 0.004 );
 		if ( ! newer && rand.chance( 0.05 ) ) {
 
 			// split board: two pieces with a ragged gap
 			const xs = rand.range( xa + 0.4, xb - 0.4 );
 			B.box( 'wood', ( xa + xs - 0.01 ) / 2, DK - plankT / 2 - yOff, zj, xs - xa - 0.01, plankT, wdt, { ...opts(), data: WOOD( rand.next(), wth, walk( xa ), 7 ) } );
-			B.box( 'wood', ( xs + 0.012 + xb ) / 2, DK - plankT / 2 - yOff - 0.004, zj + rand.range( - 0.01, 0.01 ), xb - xs - 0.012, plankT, wdt * rand.range( 0.92, 1 ), { ...opts(), data: WOOD( rand.next(), wth, walk( xs + 0.012 ), 7 ) } );
+			B.box( 'wood', ( xs + 0.012 + xb ) / 2, DK - plankT / 2 - yOff - 0.004, zj + rand.range( - 0.004, 0.004 ), xb - xs - 0.012, plankT, wdt * rand.range( 0.92, 1 ), { ...opts(), data: WOOD( rand.next(), wth, walk( xs + 0.012 ), 7 ) } );
 			return;
 
 		}
