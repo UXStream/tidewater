@@ -99,8 +99,9 @@ export class TemporalUpscale {
 		//  staticKeep: still pixels keep their history unless the local luma changed (0 = FSR2)
 		//  lockThreshold: luma ratio under which a neighbour counts as similar to the centre (FSR2 1.05)
 		this.settings = this.uniforms.fields;
-		// jitter phases (0: FSR2's 8 x (output / input)^2); debug view (TemporalUpscale.DEBUG_VIEWS index)
-		this.jitterPhaseOverride = 0;
+		// jitter phases (0: FSR2's 8 x (output / input)^2; 32 here: the still history averages ~25
+		// frames, and 8 positions left moiré on the distant planks); debug view (DEBUG_VIEWS index)
+		this.jitterPhaseOverride = 32;
 		// jitter amplitude (1: the full pixel, FSR2; less: steadier sub-pixel detail, less anti-aliasing)
 		this.jitterScale = 1;
 		// jitter amplitude while the camera moves (times jitterScale): in motion the jitter's frame to
@@ -176,6 +177,7 @@ export class TemporalUpscale {
 		this.uniforms.fields.jitterPhases.value = phases;
 		const i = this._jitterIndex % phases;
 		const k = this.jitterScale * ( 1 + ( this.jitterMoving - 1 ) * this._cameraMotion() );
+		this.jitterNow = k; // (the UI shows it)
 		const jx = ( halton( i + 1, 2 ) - 0.5 ) * k, jy = ( halton( i + 1, 3 ) - 0.5 ) * k;
 		this._jitterOffset.value.set( jx, jy );
 		return [ jx, jy ];

@@ -256,6 +256,7 @@ export class AppUI {
 		s.phases = taau.jitterPhaseOverride;
 		s.debug = taau.debugView;
 		const taaSlider = ( key, label, min, max, step, tooltip, format ) => taa.addSlider( { label, object: s, key, min, max, step, tooltip, format, onChange: ( v ) => { T[ key ].value = v; } } );
+		taa.addInfo( { label: 'Jitter now', get: () => `${ ( taau.jitterNow ?? 0 ).toFixed( 2 ) } px (camera ${ taau._camMotion > 0.01 ? 'moving' : 'still' })` } );
 		taa.addSelect( { label: 'Debug view', object: s, key: 'debug', tooltip: 'Shows what the TAA does per pixel over a grey image.', options: taau.constructor.DEBUG_VIEWS.map( ( label, value ) => ( { label, value } ) ), onChange: ( v ) => { taau.debugView = Number( v ); } } );
 		taaSlider( 'boxStill', 'Clamp width still', 0.5, 8, 0.1, 'How far (in standard deviations of the 3x3 neighbourhood) the history may differ from the new frame before it is clamped, with a still camera. Wider: steadier sub-pixel detail, more ghosting. FSR2: 1 at native resolution (default here 3).', ( v ) => `${ v.toFixed( 1 ) }σ` );
 		taaSlider( 'boxMotion', 'Clamp width moving', 0.25, 4, 0.05, 'The same at 20 px per frame of motion and above (it narrows with speed). FSR2: 1.', ( v ) => `${ v.toFixed( 2 ) }σ` );
