@@ -1,6 +1,7 @@
 import { Material, ShaderModule, G } from '../engine/webgpu.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
 import { whaleWaterModule } from './WhaleWater.js';
+import { REFRACTION_GUARD } from './RefractionPass.js';
 
 const IOR = 1.333;
 
@@ -388,16 +389,7 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		let pEnd = pos + Tv * min( Lter, 80.0 );
 		let clipEnd = frame.proj * ( frame.view * vec4f( pEnd, 1.0 ) );
 		let ndcEnd = clipEnd.xy / max( clipEnd.w, 1e-4 );
-		let uvR0 = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
-		// an end point off screen (looking down from the pier the steeper refracted ray lands below the
-		// screen): the screen offset shrinks toward the pixel itself. Clamping it, or shortening it to
-		// end exactly on the edge, made every such pixel read the edge row: streaks at right angles to
-		// the edge. The offset is at most half the way to the edge (room: the distance to the edge in
-		// offsets): the sampled position still advances with the pixel (at half rate), so the band is
-		// compressed, never repeated or folded back.
-		let offR = uvR0 - screenUV;
-		let roomR = select( ( vec2f( 0.999 ) - screenUV ) / max( offR, vec2f( 1e-6 ) ), ( screenUV - vec2f( 0.001 ) ) / max( - offR, vec2f( 1e-6 ) ), offR < vec2f( 0.0 ) );
-		let uvR = screenUV + offR * min( 1.0, max( min( roomR.x, roomR.y ), 0.0 ) * 0.5 );
+		let uvR = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
 		let onScreen = all( uvR > vec2f( 0.0 ) ) && all( uvR < vec2f( 1.0 ) );
 		var uvF = screenUV;
 		var dR = 0.0;
@@ -407,8 +399,12 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		// the scene below the water only (RefractionPass): nothing above the water (pier, rails, posts,
 		// the boat) can hide the refracted end point. Coverage in alpha: bilinear across its edge, then
 		// un-premultiplied, so the clip boundary blends instead of darkening.
+		// The image extends past the screen (RefractionPass guard band): the refracted end points of the
+		// pixels near the bottom edge land below the screen (light bends down into the water), and the
+		// seabed there is drawn. Lookups project with this frame's jittered camera, as the image was.
 		{
-			let uvRc = clamp( uvR, vec2f( 0.001 ), vec2f( 0.999 ) );
+			let cj = frame.viewProj * vec4f( pEnd, 1.0 );
+			let uvRc = _waterRefrUV( cj.xy / max( cj.w, 1e-4 ) );
 			let rc = textureSampleLevel( waterRefrColor, smpLinearClamp, uvRc, 0.0 );
 			let rSize = vec2f( textureDimensions( waterRefrDepth ) );
 			let rd = textureLoad( waterRefrDepth, vec2i( min( uvRc * rSize, rSize - 1.0 ) ), 0 ).x;
@@ -418,19 +414,19 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 			// them: the edge texel)
 			if ( rc.a > 0.5 && rd > 0.0 && surfViewZ + viewDepth( rd ) > 0.05 ) {
 				sceneCol = rc.rgb / rc.a;
-				uvF = uvRc;
+				uvF = uvR;
 				dR = rd;
 				found = true;
 			} else if ( rc.a > 0.5 && rd > 0.0 ) {
 				// the end point lies on something in front (a pile, a hull): what lies straight behind
 				// this pixel, from the same (lit) source. The opaque copy shades deep seabed cheaply and
 				// flickered against it as the piles passed in front while walking the pier.
-				let uvS = clamp( screenUV, vec2f( 0.001 ), vec2f( 0.999 ) );
+				let uvS = _waterRefrUV( vec2f( screenUV.x * 2.0 - 1.0, 1.0 - screenUV.y * 2.0 ) );
 				let rcS = textureSampleLevel( waterRefrColor, smpLinearClamp, uvS, 0.0 );
 				let rdS = textureLoad( waterRefrDepth, vec2i( min( uvS * rSize, rSize - 1.0 ) ), 0 ).x;
 				if ( rcS.a > 0.5 && rdS > 0.0 && surfViewZ + viewDepth( rdS ) > 0.05 ) {
 					sceneCol = rcS.rgb / rcS.a;
-					uvF = uvS;
+					uvF = screenUV;
 					dR = rdS;
 					found = true;
 				}
@@ -608,7 +604,14 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 }
 
 // helpers the output snippet calls (module-level so they sit outside the material functions)
+const RG = REFRACTION_GUARD;
+const _g6 = ( v ) => v.toFixed( 6 );
 const WATER_HELPERS = /* wgsl */`
+// screen NDC -> uv in the refraction image, which extends past the screen (RefractionPass guard band)
+fn _waterRefrUV( ndc: vec2f ) -> vec2f {
+	let n = ( ndc - vec2f( ${ _g6( RG.cx ) }, ${ _g6( RG.cy ) } ) ) / vec2f( ${ _g6( RG.sx ) }, ${ _g6( RG.sy ) } );
+	return clamp( vec2f( n.x * 0.5 + 0.5, 0.5 - n.y * 0.5 ), vec2f( 0.0005 ), vec2f( 0.9995 ) );
+}
 fn _waterDGGX( NdH: f32, a2: f32 ) -> f32 {
 	let d = NdH * NdH * ( a2 - 1.0 ) + 1.0;
 	return a2 / ( d * d * PI );

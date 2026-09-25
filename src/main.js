@@ -26,6 +26,8 @@ app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async ()
 
 		window.__bench = new ( await import( './core/Bench.js' ) ).Bench( app );
 		if ( app.qs.has( 'auto' ) ) window.__job = window.__bench.auto( app.qs.get( 'auto' ), { runs: Number( app.qs.get( 'runs' ) ) || 1 } );
+		// ?bench&shots=view1,view2[&tag=name]: reference shots of the named views only (core/DebugViews.js)
+		else if ( app.qs.has( 'shots' ) ) window.__job = window.__bench.shots( app.qs.get( 'shots' ).split( ',' ), { tag: app.qs.get( 'tag' ) || 'shot' } );
 
 	} else app.start();
 	ui.showStartOverlay( () => {

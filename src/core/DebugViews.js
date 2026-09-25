@@ -17,6 +17,9 @@ export const VIEWS = {
 	sunsetWest: { p: [ 20, 2.5, - 50 ], yaw: 2.02, pitch: 0.03, time: 18.05 },
 	pier: { p: [ 75, 4, - 10 ], yaw: Math.PI * 1.15, pitch: - 0.1, time: 15.5 },
 	village: { p: [ 62, 7, - 62 ], yaw: 0.34, pitch: - 0.12, time: 15.5 },
+	// from the pier over the shallows, looking down (refraction near the bottom edge of the screen)
+	pierShallows: { p: [ 53.4, 3.92, 5 ], yaw: 1.2, pitch: - 0.45, time: 9.0 },
+	pierShallowsE: { p: [ 56.6, 3.92, 5 ], yaw: - 1.2, pitch: - 0.45, time: 16.5 },
 	palms: { p: [ - 30, 3.2, - 58 ], yaw: Math.PI * 0.42, pitch: - 0.1, time: 9.5 },
 	tHeadW: { p: [ - 150, 6, 40 ], yaw: 1.156, pitch: 0.02, time: 15.0 },
 	tLowSun: { p: [ 60, 95, 140 ], yaw: Math.PI * 0.08, pitch: - 0.35, time: 17.6 },
