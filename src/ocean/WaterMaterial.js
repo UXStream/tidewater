@@ -389,12 +389,15 @@ ${ T ? `		let L0 = max( pos.y - groundH, 0.0 ) / tDown;
 		let clipEnd = frame.proj * ( frame.view * vec4f( pEnd, 1.0 ) );
 		let ndcEnd = clipEnd.xy / max( clipEnd.w, 1e-4 );
 		let uvR0 = vec2f( ndcEnd.x * 0.5 + 0.5, ndcEnd.y * -0.5 + 0.5 );
-		// an end point off screen: shorten the screen offset so it stays on screen (clamping it to the
-		// edge texel smeared the edge row into streaks at right angles to the edge, e.g. looking down
-		// from the pier, where the steeper refracted ray lands below the screen)
+		// an end point off screen (looking down from the pier the steeper refracted ray lands below the
+		// screen): the screen offset shrinks toward the pixel itself. Clamping it, or shortening it to
+		// end exactly on the edge, made every such pixel read the edge row: streaks at right angles to
+		// the edge. The offset is at most half the way to the edge (room: the distance to the edge in
+		// offsets): the sampled position still advances with the pixel (at half rate), so the band is
+		// compressed, never repeated or folded back.
 		let offR = uvR0 - screenUV;
 		let roomR = select( ( vec2f( 0.999 ) - screenUV ) / max( offR, vec2f( 1e-6 ) ), ( screenUV - vec2f( 0.001 ) ) / max( - offR, vec2f( 1e-6 ) ), offR < vec2f( 0.0 ) );
-		let uvR = screenUV + offR * sat( min( roomR.x, roomR.y ) );
+		let uvR = screenUV + offR * min( 1.0, max( min( roomR.x, roomR.y ), 0.0 ) * 0.5 );
 		let onScreen = all( uvR > vec2f( 0.0 ) ) && all( uvR < vec2f( 1.0 ) );
 		var uvF = screenUV;
 		var dR = 0.0;
