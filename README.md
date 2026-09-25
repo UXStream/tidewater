@@ -73,6 +73,8 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 
 ## Controls
 
+Mobile user agents automatically get touch controls: drag the left pad to move or steer, swipe the view to look, and use the action buttons to jump, swim, interact, and fish. Tap Rod, hold Cast and release; tap Strike on a bite, then hold Reel while watching tension. Run/Boost toggles faster movement. Cooler, Settings, and Help are available on screen. This also works when emulating a mobile user agent with a mouse.
+
 | Key | Action |
 |---|---|
 | W A S D | Move |
@@ -147,6 +149,8 @@ Every push to `main` deploys to GitHub Pages through `.github/workflows/deploy.y
 | `src/ui/` | Settings panel, loading screen and HUD |
 | `tools/` | Scripts that fetch and convert the characters, stall props and fishing sounds |
 | `test/` | Headless engine smoke test and game-logic tests (`npm test`), and HUD / loader dev pages |
+
+The GPU-free touch UI fixture is at `/test/mobile-controls.html`. With Playwright installed, run `node test/mobile-browser.mjs` against the dev server to check multi-touch, cancellation, menus, and portrait/landscape layouts. `PLAYWRIGHT_MODULE` and `BROWSER_PATH` can point to an existing Playwright/browser installation.
 
 ## Credits and license
 

@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import { Input } from '../src/core/Input.js';
+import { isMobile } from '../src/core/Platform.js';
+
+for ( const userAgent of [ 'Mozilla/5.0 (Linux; Android 14) Chrome/140 Mobile', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)' ] ) {
+	assert.equal( isMobile( { userAgent } ), true );
+}
+assert.equal( isMobile( { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' } ), false );
+assert.equal( isMobile( { userAgent: 'Macintosh', maxTouchPoints: 5 } ), true );
+assert.equal( isMobile( { userAgent: 'Macintosh', maxTouchPoints: 0 } ), false );
+assert.equal( isMobile( { userAgentData: { mobile: true } } ), true );
+
+globalThis.window = new EventTarget();
+globalThis.document = new EventTarget();
+const dom = new EventTarget();
+const input = new Input( dom );
+input.keys.add( 'KeyW' );
+input.setVirtualKey( 'KeyW', true );
+input.setVirtualKey( 'KeyW', false );
+assert.equal( input.down( 'KeyW' ), true, 'releasing touch does not release a physical key' );
+assert.equal( input.hit( 'KeyW' ), true, 'a sub-frame tap is retained' );
+input.endFrame();
+assert.equal( input.hit( 'KeyW' ), false );
+input.setVirtualKey( 'Space', true );
+assert.equal( input.hit( 'Space' ), true );
+input.endFrame();
+input.setVirtualKey( 'Space', true );
+assert.equal( input.hit( 'Space' ), false, 'holding jump does not repeat a press' );
+input.setVirtualButton( 0, true );
+input.setVirtualButton( 0, false );
+assert.equal( input.buttonDown( 0 ), true, 'a fast fishing tap lasts at least one frame' );
+input.endFrame();
+assert.equal( input.buttonDown( 0 ), false, 'the next frame sees the fishing release' );
+input.setVirtualButton( 2, true );
+input.endFrame();
+assert.equal( input.buttonDown( 2 ), true );
+input.resetVirtual();
+assert.equal( input.buttonDown( 2 ), false );
+assert.equal( input.down( 'Space' ), false );
+assert.equal( input.down( 'KeyW' ), true );
+input.mouseDown = true;
+input.look.x = 50;
+window.dispatchEvent( new Event( 'blur' ) );
+assert.equal( input.down( 'KeyW' ), false );
+assert.equal( input.buttonDown( 0 ), false );
+assert.deepEqual( input.consumeLook(), { x: 0, y: 0 } );
+let locks = 0;
+dom.requestPointerLock = () => { locks++; };
+input.mobile = true;
+input.requestLock();
+assert.equal( locks, 0 );
+input.mobile = false;
+input.requestLock();
+assert.equal( locks, 1 );
+console.log( 'Mobile input passed: UA detection, independent keys, fast taps, release, blur, pointer lock' );

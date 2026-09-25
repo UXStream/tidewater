@@ -597,6 +597,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	_frame( dt ) {
 
+		this.mobileControls?.update();
 		GPU.beginFrame();
 		FrameUniforms.fields.frameIndex.value = GPU.frame;
 		const s = this.settings;
@@ -697,6 +698,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		this.updateAudio( dt );
 		if ( this.ui ) this.ui.update( dt );
+		this.mobileControls?.update();
 		this.input.endFrame();
 
 	}

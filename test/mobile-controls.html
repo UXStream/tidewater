@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mobile controls test</title>
+<style>body { margin: 0; overflow: hidden; background: linear-gradient(#80bce0 45%, #23869a 46%, #12576c); } #view { display: block; width: 100vw; height: 100dvh; }</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script type="module">
+// GPU-free fixture: real input, controls, menus, guide and fishing HUD.
+import '../src/ui/ui.css';
+import { Input } from '../src/core/Input.js';
+import { UI } from '../src/ui/UI.js';
+import { MobileControls } from '../src/ui/MobileControls.js';
+import { GameHUD } from '../src/game/GameHUD.js';
+import { Guide } from '../src/game/Guide.js';
+import { GameState } from '../src/game/GameState.js';
+import { Minimap } from '../src/game/Minimap.js';
+const ui = new UI();
+const input = new Input( document.querySelector( '#view' ) );
+const app = { input, player: { mode: 'walk', position: { x: 0, z: 0 }, prompt: null }, freeCam: false };
+const game = app.game = { app, state: new GameState( null ), rod: { state: 'idle', equipped: true }, canFish: true,
+	cancelLine() { this.rod.state = 'idle'; }, endLanding() { this.hud.hideCatch(); this.rod.state = 'idle'; } };
+const controls = input.mobile ? new MobileControls( app, ui ) : null;
+game.hud = new GameHUD( ui, game );
+game.minimap = new Minimap( ui.hud, game );
+game.guide = new Guide( ui, game );
+ui.onReplayGuide = () => game.guide.replay();
+ui.addTab( 'test', 'Settings', 'settings' );
+ui.showStartOverlay( () => { if ( controls ) controls.started = true; input.requestLock(); } );
+window.fixture = { app, ui, input, controls, game, tick() { controls?.update(); } };
+// Tests explicitly advance input frames; don't discard taps in a background rAF.
+function frame() { controls?.update(); requestAnimationFrame( frame ); }
+requestAnimationFrame( frame );
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@
     "dev": "vite --host 127.0.0.1 --port 5189",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/game-logic.mjs && node test/engine-smoke.mjs && node test/gpu-limits.mjs && node test/material-limits.mjs"
+    "test": "node test/mobile-input.mjs && node test/game-logic.mjs && node test/engine-smoke.mjs && node test/gpu-limits.mjs && node test/material-limits.mjs"
   },
   "devDependencies": {
     "vite": "^8.3.0",

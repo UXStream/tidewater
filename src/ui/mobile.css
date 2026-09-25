@@ -1,0 +1,56 @@
+/* Mobile UA controls also work with mouse pointers when emulating a phone. */
+.tw-mobile { position: absolute; inset: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.tw-mobile [hidden] { display: none !important; }
+.tw-mobile-button, .tw-mobile-pad { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.tw-mobile-button {
+	min-width: 48px; min-height: 46px; padding: 8px 12px; border: 1px solid #d3f4ff55; border-radius: 16px;
+	background: #102932d9; color: #f2fbff; font: 600 12px/1.2 var(--tw-font); box-shadow: 0 2px 12px #0003;
+}
+.tw-mobile-button.is-held, .tw-mobile-button:active, .tw-mobile-button[aria-pressed='true'] { background: #297368e8; border-color: #a5ffe2; }
+.tw-mobile-button:disabled { opacity: 0.35; }
+.tw-mobile-button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.tw-mobile-button.is-primary { grid-column: 1 / -1; min-height: 58px; background: #286d63e8; font-size: 16px; }
+.tw-mobile-tools { position: absolute; top: max(84px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: min(230px, calc(100vw - 132px)); }
+.tw-mobile-move { position: absolute; left: max(20px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); display: flex; flex-direction: column-reverse; align-items: center; gap: 12px; }
+.tw-mobile-pad { position: relative; width: 128px; height: 128px; border-radius: 50%; border: 1px solid #d3f4ff66; background: #10293266; box-shadow: inset 0 0 0 22px #b2e5e509; }
+.tw-mobile-stick { position: absolute; left: 42px; top: 42px; width: 42px; height: 42px; border-radius: 50%; background: #e5fff8a6; border: 1px solid #fff9; box-shadow: 0 2px 12px #0003; }
+.tw-mobile-pad-label { position: absolute; top: 12px; width: 100%; text-align: center; color: #fff9; font: 600 9px var(--tw-font); letter-spacing: 2px; }
+.tw-mobile-actions { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); right: max(16px, env(safe-area-inset-right)); display: grid; grid-template-columns: repeat(2, minmax(60px, 1fr)); gap: 8px; width: 152px; }
+.tw-mobile-hint { position: absolute; bottom: calc(max(22px, env(safe-area-inset-bottom)) + 224px); left: 12px; right: 12px; text-align: center; color: #fff; font-size: 12px; text-shadow: 0 1px 5px #000; }
+.tw-mobile-resume { position: absolute; bottom: max(20px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
+.tw-root.is-mobile .tw-rail, .tw-root.is-mobile .tw-brand, .tw-root.is-mobile .tw-prompt, .tw-root.is-mobile .gm-catch-foot, .tw-root.is-mobile .tw-photo-hint { display: none; }
+.tw-root.is-mobile .tw-tl { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+.tw-root.is-mobile .tw-stats { grid-template-areas: 'main'; grid-template-columns: auto; padding: 6px 8px; }
+.tw-root.is-mobile .tw-stats-sub, .tw-root.is-mobile .tw-spark { display: none; }
+.tw-root.is-mobile .tw-fps { font-size: 16px; }
+.tw-root.is-mobile .gm-map { top: max(84px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: auto; bottom: auto; width: 96px; height: 96px; }
+.tw-root.is-mobile .gm-purse { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); gap: 8px; padding: 8px; max-width: calc(100vw - 110px); flex-wrap: wrap; justify-content: flex-end; }
+.tw-root.is-mobile .gm-cooler-label { display: none; }
+.tw-root.is-mobile .gm-cooler-bar { width: 40px; }
+.tw-root.is-mobile .gm-fuel-bar { display: none; }
+.tw-root.is-mobile .gm-gauge { gap: 4px; font-size: 12px; }
+.tw-root.is-mobile .tw-boat, .tw-root.is-mobile .tw-depth { top: 196px; left: max(12px, env(safe-area-inset-left)); bottom: auto; transform: none; scale: 1; padding: 8px; }
+.tw-root.is-mobile .tw-thr, .tw-root.is-mobile .tw-compass, .tw-root.is-mobile .tw-dial > svg, .tw-root.is-mobile .tw-depth-tape, .tw-root.is-mobile .tw-depth-mark { display: none; }
+.tw-root.is-mobile .tw-dial { width: 64px; height: 56px; }
+.tw-root.is-mobile .gm-fight { bottom: 280px; width: min(320px, 85vw); }
+.tw-root.is-mobile .gm-coach { bottom: 275px; right: 12px; max-width: calc(100vw - 24px); }
+.tw-root.is-mobile .gm-panel { max-width: calc(100vw - 24px); max-height: calc(100dvh - 32px); }
+.tw-root.is-mobile .gm-btn, .tw-root.is-mobile .tw-help-close { min-height: 44px; min-width: 44px; }
+.tw-root.is-mobile .gm-guide-hint { display: none; }
+.tw-root.is-mobile .gm-guide-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
+.tw-root.is-mobile:has(.gm-fight.is-on) .gm-coach { display: none; }
+.tw-root.is-mobile .tw-start-keys { flex-wrap: wrap; justify-content: center; }
+@media (max-height: 500px) {
+	.tw-mobile-tools { top: max(12px, env(safe-area-inset-top)); left: 50%; right: auto; transform: translateX(-50%); max-width: none; flex-wrap: nowrap; }
+	.tw-mobile-tools .tw-mobile-button { padding: 8px; }
+	.tw-mobile-move, .tw-mobile-actions { bottom: max(12px, env(safe-area-inset-bottom)); }
+	.tw-mobile-pad { width: 112px; height: 112px; }
+	.tw-mobile-stick { left: 34px; top: 34px; }
+	.tw-mobile-move { gap: 6px; }
+	.tw-mobile-hint { left: 165px; right: 180px; bottom: 18px; }
+	.tw-root.is-mobile .gm-map { width: 76px; height: 76px; top: 50px; }
+	.tw-root.is-mobile .gm-fight { bottom: 58px; width: min(280px, calc(100vw - 360px)); }
+	.tw-root.is-mobile .gm-coach { bottom: 100px; right: 180px; width: min(300px, calc(100vw - 350px)); }
+	.tw-root.is-mobile .gm-purse { top: 64px; max-width: 240px; }
+	.tw-root.is-mobile .tw-boat, .tw-root.is-mobile .tw-depth { top: 78px; left: 108px; }
+}

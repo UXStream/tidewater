@@ -111,6 +111,28 @@ const TIPS = {
 	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
 };
 
+const MOBILE_FISHING = `<div class="gm-guide-list">
+	${ row( 'Rod', 'Take out the rod by the water or on the boat' ) }
+	${ row( 'Cast', '<b>Hold</b> to wind up, release to cast. Hold longer to cast farther' ) }
+	${ row( 'Strike', 'Tap when the bobber is <b>pulled under</b>; dips are only nibbles' ) }
+	${ row( 'Reel', '<b>Hold</b> to reel. Let go when tension turns red, or the line snaps' ) }
+	${ row( 'Retrieve', 'Bring back an empty line' ) }
+	${ row( 'Cooler', 'Your cooler and fish log' ) }
+</div>`;
+
+// Keep the onboarding and contextual tips in the same vocabulary as the touch HUD.
+function mobileText( text ) {
+
+	return text.replaceAll( '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>', 'Move pad' )
+		.replaceAll( 'Move, mouse to look, <kbd>Shift</kbd> to run', 'Drag to move, swipe the view to look, tap Run for speed' )
+		.replaceAll( '<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer', 'pad up/down for throttle, left/right to steer' )
+		.replaceAll( '<kbd>R</kbd>', 'Rod' ).replaceAll( '<kbd>I</kbd>', 'Cooler' )
+		.replaceAll( '<kbd>E</kbd>', 'Interact' ).replaceAll( '<kbd>F1</kbd>', 'Help' )
+		.replaceAll( 'left mouse button', 'Cast button' ).replaceAll( 'Hold the Cast button</b> to reel', 'Hold Reel</b> to reel' )
+		.replaceAll( 'then click to strike', 'then tap Strike' ).replaceAll( 'lower right', 'upper left' );
+
+}
+
 const h = ( tag, cls, html ) => {
 
 	const e = document.createElement( tag );
@@ -135,6 +157,7 @@ export class Guide {
 
 		this.ui = ui;
 		this.game = game;
+		this.cards = ui.mobile ? CARDS.map( ( c, i ) => ( { ...c, body: i === 1 ? MOBILE_FISHING : mobileText( c.body ) } ) ) : CARDS;
 		this.minimap = minimap;
 		const style = h( 'style' );
 		style.textContent = CSS;
@@ -143,7 +166,7 @@ export class Guide {
 		this.seen = this._load();
 		this.el = h( 'div', 'gm-guide tw-interactive', `<div class="gm-guide-card tw-glass" role="dialog" aria-modal="true" aria-live="polite">
 			<div class="gm-guide-eyebrow"></div><h2></h2><div class="gm-guide-body"></div>
-			<div class="gm-guide-foot"><div class="gm-guide-dots">${ CARDS.map( () => '<span></span>' ).join( '' ) }</div>
+			<div class="gm-guide-foot"><div class="gm-guide-dots">${ this.cards.map( () => '<span></span>' ).join( '' ) }</div>
 			<div class="gm-guide-btns"><span class="gm-guide-hint">Enter · Esc to skip</span><button type="button" class="gm-btn is-ghost gm-guide-skip">Skip</button><button type="button" class="gm-btn gm-guide-next">Next</button></div></div></div>` );
 		this.card = this.el.firstChild;
 		this.eyebrow = this.el.querySelector( '.gm-guide-eyebrow' );
@@ -233,13 +256,13 @@ export class Guide {
 	show( i ) {
 
 		this.step = i;
-		const c = CARDS[ i ];
+		const c = this.cards[ i ];
 		this.eyebrow.textContent = c.eyebrow;
 		this.title.textContent = c.title;
 		this.body.innerHTML = c.body;
 		this.dots.forEach( ( d, j ) => d.classList.toggle( 'is-on', j === i ) );
-		this.nextBtn.textContent = i === CARDS.length - 1 ? 'Let\'s fish' : 'Next';
-		if ( this.minimap ) this.minimap.highlight( i === CARDS.length - 1 ? [ 'joe', 'marta' ] : [] );
+		this.nextBtn.textContent = i === this.cards.length - 1 ? 'Let\'s fish' : 'Next';
+		if ( this.minimap ) this.minimap.highlight( i === this.cards.length - 1 ? [ 'joe', 'marta' ] : [] );
 		this._whereT = 0;
 		if ( ! this.open ) {
 
@@ -252,7 +275,7 @@ export class Guide {
 
 	next() {
 
-		if ( this.step < CARDS.length - 1 ) this.show( this.step + 1 );
+		if ( this.step < this.cards.length - 1 ) this.show( this.step + 1 );
 		else this.close();
 
 	}
@@ -310,7 +333,7 @@ export class Guide {
 
 			// live direction and distance to Joe and Marta
 			this._whereT -= dt;
-			if ( this._whereT <= 0 && this.step === CARDS.length - 1 ) {
+			if ( this._whereT <= 0 && this.step === this.cards.length - 1 ) {
 
 				this._whereT = 0.25;
 				const x = p.position.x, z = p.position.z;
@@ -368,7 +391,7 @@ export class Guide {
 			this._current = id;
 			this.seen[ id ] = true;
 			this._save();
-			this.coachText.innerHTML = TIPS[ id ];
+			this.coachText.innerHTML = this.ui.mobile ? mobileText( TIPS[ id ] ) : TIPS[ id ];
 			this.coach.classList.add( 'is-on' );
 			this._coachT = 7.5;
 

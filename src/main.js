@@ -2,6 +2,7 @@ import './core/BenchSeed.js';
 import { App } from './App.js';
 import { UI } from './ui/UI.js';
 import { AppUI } from './ui/AppUI.js';
+import { MobileControls } from './ui/MobileControls.js';
 
 // ?bench runs in background tabs too (automation): rAF does not fire in a hidden page
 if ( /[?&]bench\b/.test( location.search ) ) {
@@ -19,6 +20,7 @@ window.__ui = ui;
 app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async () => {
 
 	app.ui = new AppUI( app, ui );
+	if ( app.input.mobile ) app.mobileControls = new MobileControls( app, ui );
 	ui.setLoading( 1, 'Ready' );
 	await ui.hideLoader();
 	// frame-time benchmark and reference shots (see core/Bench.js): it drives the frames itself
@@ -34,6 +36,7 @@ app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async ()
 	} else app.start();
 	ui.showStartOverlay( () => {
 
+		if ( app.mobileControls ) app.mobileControls.started = true;
 		app.input.requestLock();
 		if ( app.audio ) app.audio.resume();
 

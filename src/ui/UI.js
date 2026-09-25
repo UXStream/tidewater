@@ -1,4 +1,5 @@
 import { icon, brandMark } from './icons.js';
+import { isMobile } from '../core/Platform.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -1867,6 +1868,7 @@ export class UI {
 
 	constructor( container = document.body ) {
 
+		this.mobile = isMobile();
 		this.container = container || document.body;
 		this.tabs = new Map();
 		this.activeTab = null;
@@ -1902,6 +1904,7 @@ export class UI {
 		document.getElementById( 'fps' )?.remove();
 
 		this.root = h( 'div', 'tw-root', { 'data-panel': 'closed' } );
+		this.root.classList.toggle( 'is-mobile', this.mobile );
 		this._buildHUD();
 		this._buildPanel();
 		this._buildHelp();
@@ -2171,6 +2174,27 @@ export class UI {
 					<button type="button" class="gm-btn is-ghost tw-help-replay">Replay the guide</button>
 				</div>
 			</div>`;
+		if ( this.mobile ) {
+
+			el.querySelector( '.tw-help-head p' ).textContent = 'Move with the pad. Swipe the view to look around.';
+			el.querySelector( '.tw-help-grid' ).innerHTML = `
+				<section><h3>Explore</h3>
+					${ row( 'Move pad', 'Walk, swim, or steer the boat' ) }
+					${ row( 'Run / Boost', 'Toggle faster movement' ) }
+					${ row( 'Jump / Up', 'Jump on land, rise while swimming' ) }
+					${ row( 'Dive', 'Swim down' ) }
+					${ row( 'Interact', 'Board, take the helm, step ashore, trade' ) }
+					${ row( 'Camera', 'Change boat view' ) }</section>
+				<section><h3>Fish</h3>
+					${ row( 'Rod', 'Take out or put away your rod' ) }
+					${ row( 'Cast', 'Hold to wind up, release to cast' ) }
+					${ row( 'Strike', 'Tap when the bobber is pulled under' ) }
+					${ row( 'Reel', 'Hold to reel; let go when tension turns red' ) }
+					${ row( 'Retrieve', 'Bring back an empty line' ) }
+					${ row( 'Cooler', 'Open your cooler and fish log' ) }</section>`;
+			el.querySelector( '.tw-help-guide span' ).innerHTML = '<b>How to play:</b> sell fish to Joe by the pier and buy upgrades from Marta by the boathouse. Both are marked on the map at the upper left.';
+
+		}
 		el.querySelector( '.tw-help-close' ).addEventListener( 'click', () => this.toggleHelp( false ) );
 		el.querySelector( '.tw-help-replay' ).addEventListener( 'click', () => callHook( this.onReplayGuide ) );
 		el.addEventListener( 'click', ( e ) => {
@@ -2198,6 +2222,21 @@ export class UI {
 					<span><kbd>F1</kbd>All controls</span>
 				</div>
 			</div>`;
+		if ( this.mobile ) {
+
+			el.querySelector( '.tw-start-cta' ).innerHTML = '<span class="tw-start-pulse" aria-hidden="true"></span><span>Tap to explore</span>';
+			el.querySelector( '.tw-start-keys' ).innerHTML = '<span>Left pad to move</span><span>Swipe to look</span><span>Tap Help for controls</span>';
+			const tips = document.querySelectorAll( '.loader-tip' );
+			if ( tips.length >= 8 ) {
+
+				tips[ 0 ].textContent = 'Tap Rod, then hold Cast to wind up and release to cast. Hold longer to cast farther.';
+				tips[ 1 ].textContent = 'Watch the bobber. Tap Strike the moment it is pulled under to set the hook.';
+				tips[ 6 ].textContent = 'Tap Interact at the boat to board, at the wheel to drive, and again to walk the deck.';
+				tips[ 7 ].textContent = 'Tap Cooler for your fish log. Deck lights from Marta let you fish after dark.';
+
+			}
+
+		}
 		this.root.append( el );
 
 	}
